@@ -12,6 +12,8 @@ const LEVELS = [
   { name: 'Эксперт',  skill: 20, depth: 20 },
 ]
 
+type Hints = Record<string, React.CSSProperties>
+
 export default function ChessGame() {
   const [fen, setFen] = useState('start')
   const [orientation, setOrientation] = useState<'white' | 'black'>('white')
@@ -23,6 +25,8 @@ export default function ChessGame() {
   const [inCheck, setInCheck] = useState(false)
   const [history, setHistory] = useState<string[]>([])
   const [boardWidth, setBoardWidth] = useState(480)
+  const [selectedSq, setSelectedSq] = useState<string | null>(null)
+  const [hintSquares, setHintSquares] = useState<Hints>({})
 
   const chess = useRef(new Chess())
   const sfWorker = useRef<Worker | null>(null)
@@ -70,6 +74,8 @@ export default function ChessGame() {
     setHistory(g.history())
     setGameOver(g.isGameOver())
     setInCheck(g.isCheck() && !g.isCheckmate())
+    setSelectedSq(null)
+    setHintSquares({})
     if      (g.isCheckmate())  setStatusMsg(`Мат! ${sideCap} проиграли.`)
     else if (g.isStalemate())  setStatusMsg('Пат — ничья.')
     else if (g.isDraw())       setStatusMsg('Ничья.')
@@ -81,7 +87,6 @@ export default function ChessGame() {
     if (g.isGameOver()) return
     const { skill, depth } = LEVELS[levelIdxRef.current]
     setThinking(true)
-
     const best = await new Promise<string>(res => {
       sfResolve.current = res
       sfWorker.current?.postMessage('stop')
@@ -89,10 +94,8 @@ export default function ChessGame() {
       sfWorker.current?.postMessage(`position fen ${g.fen()}`)
       sfWorker.current?.postMessage(`go depth ${depth}`)
     })
-
     setThinking(false)
     if (!best) return
-
     try {
       g.move({
         from: best.slice(0, 2),
@@ -100,27 +103,68 @@ export default function ChessGame() {
         promotion: (best[4] ?? 'q') as 'q' | 'r' | 'b' | 'n',
       })
       syncState(g)
-    } catch {
-      // ignore rare edge cases
-    }
+    } catch { /* ignore */ }
   }, [syncState])
 
-  const onPieceDrop = useCallback((from: string, to: string, piece: string): boolean => {
+  // Shared move executor used by both drag and click
+  const executeMove = useCallback((from: string, to: string, promotion = 'q'): boolean => {
     const g = chess.current
-    if (g.isGameOver() || thinkingRef.current || g.turn() !== playerColorRef.current) return false
-
-    const promo = piece[1]?.toLowerCase() as 'q' | 'r' | 'b' | 'n' | undefined
-
     try {
-      g.move({ from, to, promotion: promo ?? 'q' })
+      g.move({ from, to, promotion: promotion as 'q' | 'r' | 'b' | 'n' })
     } catch {
       return false
     }
-
     syncState(g)
     if (!g.isGameOver()) setTimeout(() => doEngineMove(g), 150)
     return true
   }, [syncState, doEngineMove])
+
+  // Click-to-move: tap piece → highlights valid moves → tap destination
+  const onSquareClick = useCallback((sq: string) => {
+    const g = chess.current
+    if (g.isGameOver() || thinkingRef.current || g.turn() !== playerColorRef.current) return
+
+    if (selectedSq) {
+      // Deselect on same square
+      if (sq === selectedSq) {
+        setSelectedSq(null)
+        setHintSquares({})
+        return
+      }
+      // Try executing the move
+      if (executeMove(selectedSq, sq)) return
+      // Move invalid — fall through to try selecting new piece
+    }
+
+    // Select piece belonging to the current player
+    const piece = g.get(sq as any)
+    if (piece && piece.color === g.turn()) {
+      const moves = g.moves({ square: sq as any, verbose: true })
+      const hints: Hints = {
+        [sq]: { background: 'rgba(255, 255, 100, 0.5)' },
+      }
+      moves.forEach(m => {
+        const isCapture = !!g.get(m.to as any)
+        hints[m.to] = {
+          background: isCapture
+            ? 'radial-gradient(circle, rgba(220,50,50,0.25) 62%, transparent 63%)'
+            : 'radial-gradient(circle, rgba(0,0,0,0.13) 26%, transparent 27%)',
+        }
+      })
+      setSelectedSq(sq)
+      setHintSquares(hints)
+    } else {
+      setSelectedSq(null)
+      setHintSquares({})
+    }
+  }, [selectedSq, executeMove])
+
+  // Drag-to-move (desktop)
+  const onPieceDrop = useCallback((from: string, to: string, piece: string): boolean => {
+    const g = chess.current
+    if (g.isGameOver() || thinkingRef.current || g.turn() !== playerColorRef.current) return false
+    return executeMove(from, to, piece[1]?.toLowerCase() ?? 'q')
+  }, [executeMove])
 
   const newGame = useCallback(() => {
     sfWorker.current?.postMessage('stop')
@@ -134,6 +178,8 @@ export default function ChessGame() {
     setHistory([])
     setFen('start')
     setStatusMsg('Ход белых')
+    setSelectedSq(null)
+    setHintSquares({})
     if (playerColorRef.current === 'b') setTimeout(() => doEngineMove(g), 500)
   }, [doEngineMove])
 
@@ -146,9 +192,10 @@ export default function ChessGame() {
   const pairs: Array<[string, string?]> = []
   for (let i = 0; i < history.length; i += 2) pairs.push([history[i], history[i + 1]])
 
+  const isMyTurn = !gameOver && !thinking && chess.current.turn() === playerColorRef.current
+
   return (
     <main className="min-h-screen bg-gradient-to-br from-slate-900 via-gray-900 to-slate-800 flex flex-col items-center justify-center p-4 gap-6">
-      {/* Header */}
       <div className="text-center">
         <h1 className="text-2xl md:text-3xl font-bold text-white tracking-tight">
           <span className="text-emerald-400">♟</span> Шахматы
@@ -157,14 +204,16 @@ export default function ChessGame() {
       </div>
 
       <div className="flex flex-col lg:flex-row gap-5 items-start w-full max-w-5xl">
-        {/* Board */}
-        <div className="flex-shrink-0 mx-auto lg:mx-0">
+        {/* touch-action:none stops page scroll while moving pieces on mobile */}
+        <div className="flex-shrink-0 mx-auto lg:mx-0" style={{ touchAction: 'none' }}>
           <Chessboard
             position={fen}
             onPieceDrop={onPieceDrop}
+            onSquareClick={onSquareClick}
             boardOrientation={orientation}
             boardWidth={boardWidth}
-            arePiecesDraggable={!gameOver && !thinking && chess.current.turn() === playerColorRef.current}
+            arePiecesDraggable={isMyTurn}
+            customSquareStyles={hintSquares}
             customBoardStyle={{
               borderRadius: '10px',
               boxShadow: '0 24px 48px rgba(0,0,0,0.6)',
@@ -174,9 +223,7 @@ export default function ChessGame() {
           />
         </div>
 
-        {/* Sidebar */}
         <div className="flex flex-col gap-3 w-full lg:w-64 xl:w-72 flex-shrink-0">
-
           {/* Status */}
           <div className={`rounded-xl p-4 border transition-colors ${
             gameOver ? 'bg-red-950/60 border-red-700' :
@@ -265,12 +312,7 @@ export default function ChessGame() {
                 <p className="text-slate-600 text-center py-6 text-xs">Ходов нет</p>
               ) : (
                 pairs.map(([w, b], i) => (
-                  <div
-                    key={i}
-                    className={`flex py-0.5 px-1 rounded ${
-                      i === pairs.length - 1 ? 'bg-slate-700/40' : ''
-                    }`}
-                  >
+                  <div key={i} className={`flex py-0.5 px-1 rounded ${i === pairs.length - 1 ? 'bg-slate-700/40' : ''}`}>
                     <span className="text-slate-600 w-6 select-none">{i + 1}.</span>
                     <span className="text-slate-200 w-16">{w}</span>
                     {b && <span className="text-slate-300">{b}</span>}
@@ -281,7 +323,6 @@ export default function ChessGame() {
             </div>
           </div>
 
-          {/* Info */}
           <p className="text-xs text-slate-600 text-center">
             Stockfish 18 · NNUE · Web Worker
           </p>
