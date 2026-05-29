@@ -2,6 +2,7 @@ node_modules/
 .next/
 .vercel/
 public/stockfish.js
+public/stockfish.wasm
 *.log
 .DS_Store
 .env

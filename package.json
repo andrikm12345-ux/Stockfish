@@ -9,20 +9,20 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "chess.js": "^1.1.0",
     "next": "14.2.5",
     "react": "^18",
-    "react-dom": "^18",
-    "chess.js": "^1.1.0",
     "react-chessboard": "^4.7.2",
-    "stockfish": "10.0.2"
+    "react-dom": "^18",
+    "stockfish": "^18.0.7"
   },
   "devDependencies": {
-    "typescript": "^5",
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",
-    "tailwindcss": "^3",
     "autoprefixer": "^10",
-    "postcss": "^8"
+    "postcss": "^8",
+    "tailwindcss": "^3",
+    "typescript": "^5"
   }
 }
