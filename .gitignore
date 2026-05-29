@@ -1,0 +1,9 @@
+node_modules/
+.next/
+.vercel/
+public/stockfish.js
+*.log
+.DS_Store
+.env
+.env.local
+.env*.local
