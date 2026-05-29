@@ -283,7 +283,7 @@ export default function ChessGame() {
 
           {/* Info */}
           <p className="text-xs text-slate-600 text-center">
-            Stockfish 10 · UCI · Web Worker
+            Stockfish 18 · NNUE · Web Worker
           </p>
         </div>
       </div>
