@@ -1,12 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  async headers() {
-    return [
-      {
-        source: '/stockfish.wasm',
-        headers: [{ key: 'Content-Type', value: 'application/wasm' }],
-      },
-    ]
-  },
+  output: 'export',
+  trailingSlash: true,
 }
 export default nextConfig
