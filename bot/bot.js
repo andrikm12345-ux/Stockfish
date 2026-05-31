@@ -238,7 +238,9 @@ async function main() {
     while (true) {
       await page.waitForTimeout(250)
 
-      const { sanMoves, isFlipped: flipped, gameOver } = await readState(page)
+      let state
+      try { state = await readState(page) } catch { break }  // навигация → выходим
+      const { sanMoves, isFlipped: flipped, gameOver } = state
       if (gameOver) { console.log('Игра окончена.'); break }
 
       const chess = new Chess()
