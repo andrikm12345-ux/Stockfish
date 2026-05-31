@@ -181,8 +181,7 @@ function startCommandListener(page) {
 function humanDelay(remainingSecs, moveNum, isFast) {
   // Время всегда приоритет — даже над fast streak и дебютом
   if (remainingSecs !== null) {
-    if (remainingSecs < 3)  return 30  + Math.random() * 30
-    if (remainingSecs < 5)  return 80  + Math.random() * 120
+    if (remainingSecs < 5)  return 30  + Math.random() * 30
     if (remainingSecs < 10) return 130 + Math.random() * 170
   }
 
@@ -649,7 +648,7 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
         const boardBox = await page.locator(boardSel).first().boundingBox()
         if (!boardBox) { console.log('Доска исчезла'); break }
 
-        const turbo = secs !== null && secs < 3
+        const turbo = secs !== null && secs < 5
         await clickSquare(page, from, boardBox, flipped, turbo)
         await page.waitForTimeout(turbo ? 5 + Math.random() * 10 : 60 + Math.random() * 80)
         await clickSquare(page, to, boardBox, flipped, turbo)
