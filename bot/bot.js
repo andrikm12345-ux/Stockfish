@@ -410,15 +410,17 @@ async function openBrowser(siteUrl) {
 
   // Отдельная папка профиля бота (логин в Lichess сохраняется здесь между запусками)
   const debugProfile = path.join(__dirname, 'chrome-bot-profile')
-  const firstRun = !fs.existsSync(debugProfile)
 
   console.log('Запускаю отдельное окно Chrome для бота...')
+  // Открываем сразу Lichess в самом Chrome (через аргумент), а не через Playwright —
+  // пока Playwright не подключён, Cloudflare видит обычный Chrome и пропускает вход.
   spawn(chromeExe, [
     '--remote-debugging-port=9222',
     `--user-data-dir=${debugProfile}`,   // отдельный профиль → порт откроется (Chrome 136+)
     '--no-first-run',
     '--no-default-browser-check',
     '--start-maximized',
+    siteUrl,
   ], { detached: true, stdio: 'ignore' }).unref()
 
   // Ждём пока Chrome поднимет порт (до 20 попыток по 1 сек)
@@ -436,12 +438,15 @@ async function openBrowser(siteUrl) {
   }
   if (!portUp) throw new Error('Chrome не открыл порт 9222 — закрой все окна Chrome и попробуй снова.')
 
-  if (firstRun) {
-    console.log('\n*** ПЕРВЫЙ ЗАПУСК: войди в свой аккаунт Lichess в этом окне Chrome. ***')
-    console.log('*** Вход сохранится — в следующий раз будешь уже залогинен. ***\n')
-  }
+  console.log('\n══════════════════════════════════════════════════════════')
+  console.log(' Если ты УЖЕ вошёл в Lichess — просто нажми ENTER.')
+  console.log(' Если НЕТ — войди в аккаунт в окне Chrome (капча пройдёт,')
+  console.log(' потому что бот пока НЕ подключён к странице), потом ENTER.')
+  console.log('══════════════════════════════════════════════════════════\n')
+  await new Promise(r => process.stdin.once('data', r))
+  console.log('Подключаюсь к Chrome...\n')
 
-  // Подключаемся
+  // Подключаемся (после входа — Cloudflare уже пройден)
   const browser = await chromium.connectOverCDP('http://127.0.0.1:9222')
   const ctx  = browser.contexts()[0] || await browser.newContext()
   const page = ctx.pages()[0]        || await ctx.newPage()
