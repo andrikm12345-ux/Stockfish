@@ -33,6 +33,67 @@ const SITE = (process.env.SITE || 'lichess').toLowerCase()
 const OPENING_MOVES = 14
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Книга дебютов — 10 популярных дебютов (SAN, ходы обеих сторон)
+// Бот следует им мгновенно, выбирая случайно подходящие линии
+// ─────────────────────────────────────────────────────────────────────────────
+const OPENINGS = [
+  // 1. Испанская партия (Ruy Lopez)
+  ['e4','e5','Nf3','Nc6','Bb5','a6','Ba4','Nf6','O-O','Be7','Re1','b5','Bb3','d6','c3','O-O'],
+  // 2. Итальянская партия
+  ['e4','e5','Nf3','Nc6','Bc4','Bc5','c3','Nf6','d3','d6','O-O','O-O','Re1','a6'],
+  // 3. Сицилианская защита (Найдорф)
+  ['e4','c5','Nf3','d6','d4','cxd4','Nxd4','Nf6','Nc3','a6','Be2','e5','Nb3','Be7'],
+  // 4. Французская защита
+  ['e4','e6','d4','d5','Nc3','Nf6','Bg5','Be7','e5','Nfd7','Bxe7','Qxe7'],
+  // 5. Защита Каро-Канн
+  ['e4','c6','d4','d5','Nc3','dxe4','Nxe4','Bf5','Ng3','Bg6','h4','h6'],
+  // 6. Ферзевый гамбит отказанный
+  ['d4','d5','c4','e6','Nc3','Nf6','Bg5','Be7','e3','O-O','Nf3','h6'],
+  // 7. Староиндийская защита
+  ['d4','Nf6','c4','g6','Nc3','Bg7','e4','d6','Nf3','O-O','Be2','e5'],
+  // 8. Английское начало
+  ['c4','e5','Nc3','Nf6','Nf3','Nc6','g3','d5','cxd5','Nxd5','Bg2','Nb6'],
+  // 9. Славянская защита
+  ['d4','d5','c4','c6','Nf3','Nf6','Nc3','dxc4','a4','Bf5','e3','e6'],
+  // 10. Скандинавская защита
+  ['e4','d5','exd5','Qxd5','Nc3','Qa5','d4','Nf6','Nf3','c6','Bc4','Bf5'],
+]
+
+// Сравниваем позиции по расстановке/очереди/рокировкам/взятию на проходе
+function posKey(fen) {
+  return fen.split(' ').slice(0, 4).join(' ')
+}
+
+// Подбираем книжный ход для текущей позиции (или null)
+function bookMove(chess) {
+  const histLen = chess.history().length
+  const curKey  = posKey(chess.fen())
+  const candidates = []
+
+  for (const line of OPENINGS) {
+    if (line.length <= histLen) continue
+
+    // Проигрываем линию до текущего момента
+    const test = new Chess()
+    let ok = true
+    for (let i = 0; i < histLen; i++) {
+      try { test.move(line[i]) } catch { ok = false; break }
+    }
+    if (!ok) continue
+    if (posKey(test.fen()) !== curKey) continue   // позиция не совпала
+
+    // Следующий ход линии — наш книжный ход
+    try {
+      const mv = test.move(line[histLen])
+      if (mv) candidates.push(mv)
+    } catch { /* пропускаем */ }
+  }
+
+  if (candidates.length === 0) return null
+  return candidates[Math.floor(Math.random() * candidates.length)]
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Проверка: URL является активной игрой Lichess
 // ─────────────────────────────────────────────────────────────────────────────
 function isGameUrl(url) {
@@ -306,23 +367,35 @@ async function main() {
       if (chess.isGameOver()) break
 
       const moveNum = Math.ceil(chess.history().length / 2) + 1
-      const isOpening = moveNum <= OPENING_MOVES
-      process.stdout.write(`Ход ${moveNum}${isOpening ? ' [дебют]' : ` [d${DEPTH}s${SKILL}]`} | Думаю... `)
 
-      const t0      = Date.now()
-      const uciMove = await engine.getBestMove(fen, moveNum)
-      const ms      = Date.now() - t0
+      // Сначала пробуем книгу дебютов — мгновенный книжный ход
+      const book = bookMove(chess)
 
-      if (!uciMove) { console.log('(нет хода)'); continue }
-
-      const from  = uciMove.slice(0, 2)
-      const to    = uciMove.slice(2, 4)
-      const promo = uciMove[4] || null
+      let from, to, promo, tag, ms = 0
+      if (book) {
+        from  = book.from
+        to    = book.to
+        promo = book.promotion || null
+        tag   = '[книга]'
+        process.stdout.write(`Ход ${moveNum} ${tag} | `)
+      } else {
+        const isOpening = moveNum <= OPENING_MOVES
+        tag = isOpening ? '[дебют]' : `[d${DEPTH}s${SKILL}]`
+        process.stdout.write(`Ход ${moveNum} ${tag} | Думаю... `)
+        const t0      = Date.now()
+        const uciMove = await engine.getBestMove(fen, moveNum)
+        ms            = Date.now() - t0
+        if (!uciMove) { console.log('(нет хода)'); continue }
+        from  = uciMove.slice(0, 2)
+        to    = uciMove.slice(2, 4)
+        promo = uciMove[4] || null
+      }
 
       const secs  = isLichess ? await readClockSecs(page) : null
-      const delay = humanDelay(secs, moveNum)
+      // Книжные ходы — с небольшой человеческой паузой
+      const delay = book ? (200 + Math.random() * 400) : humanDelay(secs, moveNum)
 
-      console.log(`${from}→${to} (${ms}мс думал, ${Math.round(delay)}мс пауза${secs !== null ? `, ${Math.round(secs)}с осталось` : ''})`)
+      console.log(`${from}→${to} (${ms ? `${ms}мс думал, ` : ''}${Math.round(delay)}мс пауза${secs !== null ? `, ${Math.round(secs)}с осталось` : ''})`)
 
       await page.waitForTimeout(delay)
 
