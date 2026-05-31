@@ -226,7 +226,7 @@ async function main() {
   // Outer loop: новые партии
   while (true) {
     console.log('\nЖду партию...')
-    await page.waitForSelector(boardSel, { timeout: 0 })
+    await page.locator(boardSel).first().waitFor({ timeout: 0 })
 
     const { isFlipped: fl } = await readState(page)
     const myColor = fl ? 'b' : 'w'
@@ -274,7 +274,7 @@ async function main() {
 
       await page.waitForTimeout(delay)
 
-      const boardBox = await page.locator(boardSel).boundingBox()
+      const boardBox = await page.locator(boardSel).first().boundingBox()
       if (!boardBox) { console.log('Доска исчезла'); break }
 
       await clickSquare(page, from, boardBox, flipped)
