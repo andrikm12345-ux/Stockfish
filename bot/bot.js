@@ -158,65 +158,78 @@ async function main() {
   console.log(`Играю за: ${myColor === 'w' ? '♔ Белых' : '♚ Чёрных'}`)
   console.log('Бот запущен. Ctrl+C для остановки.\n')
 
-  const engine  = await initEngine()
-  let   lastFen = ''
+  const engine = await initEngine()
 
+  // Outer loop: автоматически переходит к следующей партии
   while (true) {
-    await page.waitForTimeout(300)
+    // Ждём пока появится доска (новая партия)
+    console.log('\nЖду новую партию...')
+    await page.waitForSelector(boardSel, { timeout: 0 })
 
-    const { sanMoves, isFlipped: flipped, gameOver } = await readState(page)
+    const { isFlipped: fl } = await readState(page)
+    const myColor = fl ? 'b' : 'w'
+    console.log(`Играю за: ${myColor === 'w' ? '♔ Белых' : '♚ Чёрных'}`)
 
-    if (gameOver) { console.log('Игра окончена.'); break }
+    let lastFen = ''
 
-    const chess = new Chess()
-    for (const san of sanMoves) {
-      try { chess.move(san) } catch {}
-    }
-
-    const fen = chess.fen()
-    if (fen === lastFen) continue
-    lastFen = fen
-
-    if (chess.turn() !== myColor) continue
-    if (chess.isGameOver()) break
-
-    const moveNum = Math.ceil(chess.history().length / 2) + 1
-    process.stdout.write(`Ход ${moveNum} | Думаю... `)
-
-    const t0      = Date.now()
-    const uciMove = await engine.getBestMove(fen)
-    const ms      = Date.now() - t0
-
-    if (!uciMove) { console.log('(нет хода)'); continue }
-
-    const from  = uciMove.slice(0, 2)
-    const to    = uciMove.slice(2, 4)
-    const promo = uciMove[4] || null
-
-    console.log(`${from}→${to} (${ms}мс)`)
-
-    await page.waitForTimeout(DELAY + Math.random() * 400)
-
-    const boardBox = await page.locator(boardSel).boundingBox()
-    if (!boardBox) { console.log('Доска исчезла'); continue }
-
-    await clickSquare(page, from, boardBox, flipped)
-    await page.waitForTimeout(80 + Math.random() * 60)
-    await clickSquare(page, to, boardBox, flipped)
-
-    if (promo) {
+    // Inner loop: игра
+    while (true) {
       await page.waitForTimeout(300)
-      const qBtn = isLichess
-        ? page.locator('.promotion-choice piece.queen').first()
-        : page.locator('.promotion-piece[data-piece="q"]').first()
-      if (await qBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
-        await qBtn.click()
+
+      const { sanMoves, isFlipped: flipped, gameOver } = await readState(page)
+
+      if (gameOver) { console.log('Игра окончена.'); break }
+
+      const chess = new Chess()
+      for (const san of sanMoves) {
+        try { chess.move(san) } catch {}
+      }
+
+      const fen = chess.fen()
+      if (fen === lastFen) continue
+      lastFen = fen
+
+      if (chess.turn() !== myColor) continue
+      if (chess.isGameOver()) break
+
+      const moveNum = Math.ceil(chess.history().length / 2) + 1
+      process.stdout.write(`Ход ${moveNum} | Думаю... `)
+
+      const t0      = Date.now()
+      const uciMove = await engine.getBestMove(fen)
+      const ms      = Date.now() - t0
+
+      if (!uciMove) { console.log('(нет хода)'); continue }
+
+      const from  = uciMove.slice(0, 2)
+      const to    = uciMove.slice(2, 4)
+      const promo = uciMove[4] || null
+
+      console.log(`${from}→${to} (${ms}мс)`)
+
+      await page.waitForTimeout(DELAY + Math.random() * 400)
+
+      const boardBox = await page.locator(boardSel).boundingBox()
+      if (!boardBox) { console.log('Доска исчезла'); break }
+
+      await clickSquare(page, from, boardBox, flipped)
+      await page.waitForTimeout(80 + Math.random() * 60)
+      await clickSquare(page, to, boardBox, flipped)
+
+      if (promo) {
+        await page.waitForTimeout(300)
+        const qBtn = isLichess
+          ? page.locator('.promotion-choice piece.queen').first()
+          : page.locator('.promotion-piece[data-piece="q"]').first()
+        if (await qBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
+          await qBtn.click()
+        }
       }
     }
-  }
 
-  engine.quit()
-  console.log('\nБот остановлен.')
+    // Ждём 3 секунды и проверяем новую партию
+    await page.waitForTimeout(3000)
+  }
 }
 
 main().catch(err => { console.error('\nОшибка:', err.message); process.exit(1) })
