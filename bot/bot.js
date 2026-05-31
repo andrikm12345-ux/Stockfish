@@ -12,8 +12,9 @@
  *   SITE=lichess | chess (default lichess)
  *
  * Console commands while running:
- *   d 12       set depth to 12
- *   s 10       set skill level (0-20)
+ *   d 12          set depth to 12
+ *   s 10          set skill level (0-20)
+ *   g <url>       перейти на игру по ссылке
  */
 
 'use strict'
@@ -28,48 +29,77 @@ let DEPTH = parseInt(process.env.DEPTH || '18')
 let SKILL = 20
 const SITE = (process.env.SITE || 'lichess').toLowerCase()
 
+// Количество ходов которые считаются дебютом (быстрая игра)
+const OPENING_MOVES = 14
+
 // ─────────────────────────────────────────────────────────────────────────────
-// Console commands handler
+// Проверка: URL является активной игрой Lichess
 // ─────────────────────────────────────────────────────────────────────────────
-function startCommandListener() {
+function isGameUrl(url) {
+  return /lichess\.org\/[a-zA-Z0-9]{8}(\/(?:black|white))?([?#].*)?$/.test(url)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Console commands
+// ─────────────────────────────────────────────────────────────────────────────
+function startCommandListener(page) {
   const rl = readline.createInterface({ input: process.stdin })
   rl.on('line', (line) => {
-    const [cmd, val] = line.trim().split(' ')
+    const parts = line.trim().split(' ')
+    const cmd = parts[0]
+    const val = parts.slice(1).join(' ')
+
     if (cmd === 'd' && val) {
       DEPTH = parseInt(val)
       console.log(`\n→ Depth = ${DEPTH}`)
     } else if (cmd === 's' && val) {
       SKILL = Math.min(20, Math.max(0, parseInt(val)))
       console.log(`\n→ Skill = ${SKILL}`)
+    } else if (cmd === 'g' && val) {
+      console.log(`\n→ Перехожу на: ${val}`)
+      page.goto(val).catch(() => {})
     } else if (line.trim()) {
-      console.log('Команды: d <глубина>   s <скилл 0-20>')
+      console.log('Команды: d <глубина>   s <скилл 0-20>   g <ссылка на игру>')
     }
   })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Human-like delay based on remaining time
+// Задержка перед ходом
 // ─────────────────────────────────────────────────────────────────────────────
-function humanDelay(remainingSecs) {
-  // panic: < 10 sec
+function humanDelay(remainingSecs, moveNum) {
+  // Дебют: первые OPENING_MOVES ходов — быстро как по теории
+  if (moveNum <= OPENING_MOVES) {
+    return 150 + Math.random() * 350
+  }
+
+  // Паник-режим: < 10 сек
   if (remainingSecs !== null && remainingSecs < 10) {
     return 80 + Math.random() * 150
   }
-  // bullet mode (< 30 sec left or < 60 sec total): super fast
+  // Мало времени: < 30 сек
   if (remainingSecs !== null && remainingSecs < 30) {
     return 150 + Math.random() * 300
   }
 
-  // Random delay profile: sometimes instant, sometimes thinking
+  // Обычная игра — случайные профили
   const r = Math.random()
-  if (r < 0.15) return 200  + Math.random() * 300   // quick reply
-  if (r < 0.60) return 500  + Math.random() * 1000  // normal
-  if (r < 0.85) return 1200 + Math.random() * 1500  // thinking
-  return 2500 + Math.random() * 2500                 // long think
+  if (r < 0.15) return 200  + Math.random() * 300
+  if (r < 0.60) return 500  + Math.random() * 1000
+  if (r < 0.85) return 1200 + Math.random() * 1500
+  return 2500 + Math.random() * 2500
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Read remaining clock time (seconds) for the bottom player
+// Время на движок (дебют — быстрее)
+// ─────────────────────────────────────────────────────────────────────────────
+function engineCmd(moveNum) {
+  if (moveNum <= OPENING_MOVES) return 'go movetime 500'
+  return `go depth ${DEPTH}`
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Оставшееся время на часах
 // ─────────────────────────────────────────────────────────────────────────────
 async function readClockSecs(page) {
   return page.evaluate(() => {
@@ -124,17 +154,17 @@ async function initEngine() {
   send(`setoption name Skill Level value ${SKILL}`)
 
   console.log('Engine ready (Stockfish native)\n')
-  console.log('Команды прямо здесь: d <глубина>  s <скилл 0-20>')
-  console.log('Пример: d 12   или   s 8\n')
+  console.log('Команды: d <глубина>  s <скилл 0-20>  g <ссылка на игру>')
+  console.log(`Дебют (первые ${OPENING_MOVES} ходов): movetime 500мс | Миттельшпиль: depth ${DEPTH}\n`)
 
   return {
-    getBestMove(fen) {
+    getBestMove(fen, moveNum) {
       return new Promise(res => {
         bestMoveCb = res
         send('stop')
         send(`setoption name Skill Level value ${SKILL}`)
         send(`position fen ${fen}`)
-        send(`go depth ${DEPTH}`)
+        send(engineCmd(moveNum))
       })
     },
     quit() { send('quit') },
@@ -142,7 +172,7 @@ async function initEngine() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Read game state from DOM
+// Читаем состояние игры из DOM
 // ─────────────────────────────────────────────────────────────────────────────
 async function readLichessState(page) {
   return page.evaluate(() => {
@@ -185,7 +215,7 @@ async function readChessComState(page) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Click square
+// Кликаем по клетке
 // ─────────────────────────────────────────────────────────────────────────────
 async function clickSquare(page, square, boardBox, isFlipped) {
   const file = square.charCodeAt(0) - 97
@@ -197,13 +227,30 @@ async function clickSquare(page, square, boardBox, isFlipped) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Ждём активную игровую страницу
+// ─────────────────────────────────────────────────────────────────────────────
+async function waitForGamePage(page, isLichess) {
+  while (true) {
+    const url = page.url()
+    if (!isLichess || isGameUrl(url)) {
+      // Ждём появления доски
+      try {
+        await page.waitForSelector(isLichess ? 'cg-board' : '.board', { timeout: 3000 })
+        return
+      } catch {}
+    }
+    await page.waitForTimeout(500)
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Main
 // ─────────────────────────────────────────────────────────────────────────────
 async function main() {
-  console.log('╔═══════════════════════════════╗')
-  console.log('║    Stockfish 18 Chess Bot     ║')
-  console.log(`║  Depth: ${String(DEPTH).padEnd(4)} Skill: ${String(SKILL).padEnd(6)}     ║`)
-  console.log('╚═══════════════════════════════╝\n')
+  console.log('╔════════════════════════════════════╗')
+  console.log('║      Stockfish 18 Chess Bot        ║')
+  console.log(`║  Depth: ${String(DEPTH).padEnd(4)} Skill: ${String(SKILL).padEnd(4)} Opening: ${OPENING_MOVES}ходов ║`)
+  console.log('╚════════════════════════════════════╝\n')
 
   const isLichess = SITE === 'lichess'
   const siteUrl   = isLichess ? 'https://lichess.org' : 'https://www.chess.com'
@@ -214,24 +261,20 @@ async function main() {
   const page    = await browser.newPage()
   await page.goto(siteUrl)
 
-  console.log(`Opened ${siteUrl}`)
-  console.log('Войди в аккаунт, начни игру, потом нажми ENTER здесь...\n')
+  console.log(`Открыт ${siteUrl}`)
+  console.log('Войди в аккаунт и нажми ENTER — бот будет следить за играми сам.\n')
+  console.log('Или вставь ссылку на приглашение командой:  g <url>\n')
   await new Promise(r => process.stdin.once('data', r))
 
-  await page.waitForSelector(boardSel, { timeout: 60_000 })
-
   const engine = await initEngine()
-  startCommandListener()
+  startCommandListener(page)
 
-  // Outer loop: новые партии
+  // Внешний цикл: следим за игровыми страницами
   while (true) {
-    console.log('\nЖду партию...')
-    await page.locator(boardSel).first().waitFor({ timeout: 0 })
+    console.log('\nЖду игровую страницу...')
+    await waitForGamePage(page, isLichess)
+    await page.waitForTimeout(1000)
 
-    // Ждём пока страница полностью прогрузит новую игру
-    await page.waitForTimeout(1500)
-
-    // Проверяем что это активная игра, а не анализ/пазл
     let initialState
     try { initialState = await readState(page) } catch { await page.waitForTimeout(2000); continue }
     if (initialState.gameOver) { await page.waitForTimeout(2000); continue }
@@ -242,12 +285,15 @@ async function main() {
 
     let lastFen = ''
 
-    // Inner loop: игра
+    // Игровой цикл
     while (true) {
       await page.waitForTimeout(250)
 
+      // Выходим если URL сменился (игра закончилась / редирект)
+      if (isLichess && !isGameUrl(page.url())) { console.log('Игра окончена (редирект).'); break }
+
       let state
-      try { state = await readState(page) } catch { break }  // навигация → выходим
+      try { state = await readState(page) } catch { break }
       const { sanMoves, isFlipped: flipped, gameOver } = state
       if (gameOver) { console.log('Игра окончена.'); break }
 
@@ -264,10 +310,11 @@ async function main() {
       if (chess.isGameOver()) break
 
       const moveNum = Math.ceil(chess.history().length / 2) + 1
-      process.stdout.write(`Ход ${moveNum} [d${DEPTH}s${SKILL}] | Думаю... `)
+      const isOpening = moveNum <= OPENING_MOVES
+      process.stdout.write(`Ход ${moveNum}${isOpening ? ' [дебют]' : ` [d${DEPTH}s${SKILL}]`} | Думаю... `)
 
       const t0      = Date.now()
-      const uciMove = await engine.getBestMove(fen)
+      const uciMove = await engine.getBestMove(fen, moveNum)
       const ms      = Date.now() - t0
 
       if (!uciMove) { console.log('(нет хода)'); continue }
@@ -276,11 +323,10 @@ async function main() {
       const to    = uciMove.slice(2, 4)
       const promo = uciMove[4] || null
 
-      // Читаем оставшееся время и считаем задержку
       const secs  = isLichess ? await readClockSecs(page) : null
-      const delay = humanDelay(secs)
+      const delay = humanDelay(secs, moveNum)
 
-      console.log(`${from}→${to} (думал:${ms}мс задержка:${Math.round(delay)}мс${secs !== null ? ` осталось:${Math.round(secs)}с` : ''})`)
+      console.log(`${from}→${to} (${ms}мс думал, ${Math.round(delay)}мс пауза${secs !== null ? `, ${Math.round(secs)}с осталось` : ''})`)
 
       await page.waitForTimeout(delay)
 
@@ -302,7 +348,7 @@ async function main() {
       }
     }
 
-    await page.waitForTimeout(2000)
+    await page.waitForTimeout(1500)
   }
 }
 
