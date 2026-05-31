@@ -219,22 +219,53 @@ async function readClockSecs(page) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Читаем контроль времени из заголовка игры (например "5+0", "3+2")
+// Надёжнее чем читать остаток на часах — не зависит от момента входа в партию
+// ─────────────────────────────────────────────────────────────────────────────
+async function readTimeControlSecs(page) {
+  return page.evaluate(() => {
+    const selectors = [
+      '.setup__title',
+      'a.setup',
+      '.game__meta .header',
+      '.game-infos',
+      '.header-game-infos',
+    ]
+    for (const sel of selectors) {
+      const el = document.querySelector(sel)
+      if (!el) continue
+      const m = el.textContent.match(/\b(\d{1,2})\+(\d{1,2})\b/)
+      if (m) {
+        const base = parseInt(m[1])
+        const inc  = parseInt(m[2])
+        if (base >= 1 && base <= 60) return base * 60 + inc
+      }
+    }
+    return null
+  }).catch(() => null)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Определяем тип контроля и авто-выставляем глубину
 // ─────────────────────────────────────────────────────────────────────────────
 async function detectGameType(page) {
-  const secs = await readClockSecs(page)
-  if (secs === null) return
-  isBulletGame = secs < 180
+  // Сначала пробуем заголовок (точно), потом часы (запасной вариант)
+  let totalSecs = await readTimeControlSecs(page)
+  const source  = totalSecs !== null ? 'заголовок' : 'часы'
+  if (totalSecs === null) totalSecs = await readClockSecs(page)
+  if (totalSecs === null) return
+
+  isBulletGame = totalSecs < 180
   if (!AUTO_DEPTH) {
-    const label = secs < 180 ? 'пуля' : secs < 600 ? 'блиц' : 'рапид'
-    console.log(`Контроль: ~${Math.round(secs)}с [${label}] | Depth:${DEPTH} (вручную)`)
+    const label = totalSecs < 180 ? 'пуля' : totalSecs < 600 ? 'блиц' : 'рапид'
+    console.log(`Контроль: ${Math.round(totalSecs)}с [${label}] (${source}) | Depth:${DEPTH} (вручную)`)
     return
   }
-  if      (secs < 180) DEPTH = 5
-  else if (secs < 600) DEPTH = 8
-  else                 DEPTH = 12
-  const label = secs < 180 ? 'пуля' : secs < 600 ? 'блиц' : 'рапид'
-  console.log(`Авто-глубина: ~${Math.round(secs)}с → depth ${DEPTH} [${label}]`)
+  if      (totalSecs < 180) DEPTH = 5
+  else if (totalSecs < 600) DEPTH = 8
+  else                      DEPTH = 12
+  const label = totalSecs < 180 ? 'пуля' : totalSecs < 600 ? 'блиц' : 'рапид'
+  console.log(`Авто-глубина: ${Math.round(totalSecs)}с [${label}] (${source}) → depth ${DEPTH}`)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
