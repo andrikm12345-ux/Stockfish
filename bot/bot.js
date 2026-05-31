@@ -240,8 +240,17 @@ async function initEngine() {
         const s2 = multiMoves[2]?.score ?? -9999
         multiMoves = {}
 
-        // 13% шанс сыграть 2-й по качеству ход — если разница < 80cp (не зевок)
-        if (m2 && Math.abs(s1 - s2) < 80 && Math.random() < 0.13) {
+        // Иногда играем не лучший ход — снижает точность до человеческих ~80-85%
+        // 25% шанс взять 2-й ход если разница < 120cp (не грубый зевок)
+        // 8% шанс взять 3-й ход если разница < 60cp (почти равные ходы)
+        const m3 = multiMoves[3]?.move
+        const s3 = multiMoves[3]?.score ?? -9999
+        multiMoves = {}
+
+        const rnd = Math.random()
+        if (m3 && Math.abs(s1 - s3) < 60  && rnd < 0.08) {
+          cb(m3)
+        } else if (m2 && Math.abs(s1 - s2) < 120 && rnd < 0.25) {
           cb(m2)
         } else {
           cb(best === '(none)' || !best ? null : best)
