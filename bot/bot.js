@@ -230,17 +230,12 @@ async function clickSquare(page, square, boardBox, isFlipped) {
 // Ждём активную игровую страницу
 // ─────────────────────────────────────────────────────────────────────────────
 async function waitForGamePage(page, isLichess) {
-  while (true) {
-    const url = page.url()
-    if (!isLichess || isGameUrl(url)) {
-      // Ждём появления доски
-      try {
-        await page.waitForSelector(isLichess ? 'cg-board' : '.board', { timeout: 3000 })
-        return
-      } catch {}
-    }
-    await page.waitForTimeout(500)
+  if (isLichess) {
+    // Ждём пока URL станет игровым (lichess.org/XXXXXXXX)
+    await page.waitForURL(/lichess\.org\/[a-zA-Z0-9]{8}/, { timeout: 0 })
   }
+  // Ждём доску
+  await page.locator(isLichess ? 'cg-board' : '.board').first().waitFor({ timeout: 0 })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
