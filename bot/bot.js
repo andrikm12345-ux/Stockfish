@@ -228,7 +228,15 @@ async function main() {
     console.log('\nЖду партию...')
     await page.locator(boardSel).first().waitFor({ timeout: 0 })
 
-    const { isFlipped: fl } = await readState(page)
+    // Ждём пока страница полностью прогрузит новую игру
+    await page.waitForTimeout(1500)
+
+    // Проверяем что это активная игра, а не анализ/пазл
+    let initialState
+    try { initialState = await readState(page) } catch { await page.waitForTimeout(2000); continue }
+    if (initialState.gameOver) { await page.waitForTimeout(2000); continue }
+
+    const { isFlipped: fl } = initialState
     const myColor = fl ? 'b' : 'w'
     console.log(`Играю за: ${myColor === 'w' ? '♔ Белых' : '♚ Чёрных'} | Depth:${DEPTH} Skill:${SKILL}`)
 
