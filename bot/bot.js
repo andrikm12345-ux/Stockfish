@@ -138,27 +138,23 @@ function startCommandListener(page) {
 // Задержка перед ходом — имитирует живого человека
 // ─────────────────────────────────────────────────────────────────────────────
 function humanDelay(remainingSecs, moveNum, isFast) {
-  // Режим быстрой серии
   if (isFast) return 300 + Math.random() * 600
-
-  // Дебютные ходы вне книги
   if (moveNum <= OPENING_MOVES) return 800 + Math.random() * 2000
 
-  // Цейтнот — приоритет скорости над имитацией
-  if (remainingSecs !== null && remainingSecs < 5)  return 80  + Math.random() * 120   // 80-200мс
-  if (remainingSecs !== null && remainingSecs < 10) return 150 + Math.random() * 200   // 150-350мс
-  if (remainingSecs !== null && remainingSecs < 20) return 250 + Math.random() * 350   // 250-600мс
-  if (remainingSecs !== null && remainingSecs < 40) return 600 + Math.random() * 900   // 0.6-1.5с
-
-  // Основной режим — % от оставшегося времени
   if (remainingSecs !== null) {
-    const pct = 0.015 + Math.random() * 0.04   // 1.5% – 5.5%
+    // Жёсткий цейтнот — фиксированно быстро
+    if (remainingSecs < 5)  return 80  + Math.random() * 120
+    if (remainingSecs < 10) return 130 + Math.random() * 170
+
+    // Всё остальное — строго % от остатка времени
+    // При 10 мин: 12–42 сек | При 1 мин: 1.2–4.2 сек | При 15 сек: 300мс–1 сек
+    const pct = 0.02 + Math.random() * 0.05
     let ms = remainingSecs * pct * 1000
-    if (Math.random() < 0.18) ms *= 1.3 + Math.random() * 1.0  // иногда думаем дольше
-    return Math.max(1000, Math.min(45000, ms))
+    if (Math.random() < 0.18) ms *= 1.3 + Math.random() * 1.0  // иногда думает дольше
+    return Math.max(300, Math.min(45000, ms))
   }
 
-  // Нет часов
+  // Нет часов — случайные профили
   const r = Math.random()
   if (r < 0.15) return 500  + Math.random() * 1000
   if (r < 0.55) return 2000 + Math.random() * 4000
