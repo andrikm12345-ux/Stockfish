@@ -30,6 +30,7 @@ const { Chess }    = require('chess.js')
 const { spawn }    = require('child_process')
 const readline     = require('readline')
 const path         = require('path')
+const os           = require('os')
 
 let DEPTH = parseInt(process.env.DEPTH || '18')
 let SKILL = 20
@@ -393,25 +394,39 @@ async function openBrowser(siteUrl) {
     return { browser, page }
   } catch { /* CDP недоступен */ }
 
-  // Запускаем Chrome с сохранённым профилем — куки/логин сохраняются между запусками
-  const profileDir = path.join(__dirname, 'chrome-profile')
-  console.log('Запускаю Chrome с сохранённым профилем...')
-  console.log('(При первом запуске войди в аккаунт — в следующий раз уже будешь залогинен)\n')
-  const ctx  = await chromium.launchPersistentContext(profileDir, {
-    channel: 'chrome',
-    headless: false,
-    args: [
-      '--start-maximized',
-      '--disable-blink-features=AutomationControlled',  // скрываем автоматизацию от Cloudflare
-    ],
-  })
-  // Убираем navigator.webdriver — главный признак по которому Cloudflare банит
-  await ctx.addInitScript(() => {
-    Object.defineProperty(navigator, 'webdriver', { get: () => undefined })
-  })
-  const page = ctx.pages()[0] || await ctx.newPage()
-  await page.goto(siteUrl)
-  return { browser: { close: () => ctx.close() }, page }
+  // Пробуем твой настоящий профиль Chrome (там уже есть логин)
+  const realProfile = path.join(
+    'C:\\Users', os.userInfo().username,
+    'AppData\\Local\\Google\\Chrome\\User Data'
+  )
+  const botProfile = path.join(__dirname, 'chrome-profile')
+
+  for (const profileDir of [realProfile, botProfile]) {
+    try {
+      const label = profileDir === realProfile ? 'твоим профилем Chrome' : 'профилем бота'
+      console.log(`Запускаю Chrome с ${label}...`)
+      const ctx = await chromium.launchPersistentContext(profileDir, {
+        channel: 'chrome',
+        headless: false,
+        args: [
+          '--start-maximized',
+          '--disable-blink-features=AutomationControlled',
+        ],
+      })
+      await ctx.addInitScript(() => {
+        Object.defineProperty(navigator, 'webdriver', { get: () => undefined })
+      })
+      const page = ctx.pages()[0] || await ctx.newPage()
+      const url  = page.url()
+      if (!url.includes('lichess') && !url.includes('chess.com')) {
+        await page.goto(siteUrl)
+      }
+      return { browser: { close: () => ctx.close() }, page }
+    } catch (e) {
+      console.log(`Профиль недоступен (${e.message.slice(0, 60)}), пробую следующий...`)
+    }
+  }
+  throw new Error('Не удалось запустить Chrome ни с одним профилем')
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
