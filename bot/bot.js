@@ -151,7 +151,7 @@ async function main() {
   const boardSel   = isLichess ? 'cg-board' : '.board'
   const readState  = isLichess ? readLichessState : readChessComState
 
-  const browser = await chromium.launch({ headless: false, args: ['--start-maximized'] })
+  const browser = await chromium.launch({ channel: 'chrome', headless: false, args: ['--start-maximized'] })
   const page    = await browser.newPage()
   await page.goto(siteUrl)
 
