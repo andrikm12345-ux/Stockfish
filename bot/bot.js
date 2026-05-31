@@ -40,6 +40,7 @@ let AUTO_DEPTH = true    // автоподбор глубины по контр�
 let isBulletGame = false // текущая игра — пуля?
 let lastEngineScore = 0  // последняя оценка движка (cp)
 let PAUSED = false       // пауза: бот не делает ходы
+let lastPauseToggle = 0  // защита от двойного срабатывания p
 
 // Количество ходов которые считаются дебютом (быстрая игра)
 const OPENING_MOVES = 14
@@ -160,6 +161,9 @@ function startCommandListener(page) {
       AUTO_DEPTH = true
       console.log('\n→ Авто-глубина включена (вступит в силу с начала следующей игры)')
     } else if (cmd === 'p') {
+      const now = Date.now()
+      if (now - lastPauseToggle < 1000) return
+      lastPauseToggle = now
       PAUSED = !PAUSED
       console.log(PAUSED ? '\n⏸  Бот на паузе — ходы не делает' : '\n▶  Бот возобновлён')
     } else if (cmd === 'g' && val) {
