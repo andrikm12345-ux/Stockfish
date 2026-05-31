@@ -385,7 +385,7 @@ async function waitForGamePage(page, isLichess) {
 async function openBrowser(siteUrl) {
   // Пробуем подключиться к уже открытому Chrome
   try {
-    const browser = await chromium.connectOverCDP('http://localhost:9222', { timeout: 2000 })
+    const browser = await chromium.connectOverCDP('http://127.0.0.1:9222', { timeout: 2000 })
     const ctx  = browser.contexts()[0] || await browser.newContext()
     const page = ctx.pages()[0]        || await ctx.newPage()
     if (!page.url().includes('lichess') && !page.url().includes('chess.com')) {
@@ -407,17 +407,28 @@ async function openBrowser(siteUrl) {
   // Закрываем Chrome если открыт, запускаем с портом отладки
   console.log('Перезапускаю Chrome с портом отладки (аккаунт сохранится)...')
   try { require('child_process').execSync('taskkill /F /IM chrome.exe', { stdio: 'ignore' }) } catch {}
-  await new Promise(r => setTimeout(r, 1500))
+  await new Promise(r => setTimeout(r, 2000))
 
-  spawn(chromeExe, ['--remote-debugging-port=9222', '--start-maximized'], {
-    detached: true, stdio: 'ignore',
-  }).unref()
+  spawn(chromeExe, [
+    '--remote-debugging-port=9222',
+    '--remote-debugging-address=127.0.0.1',
+    '--start-maximized',
+    '--no-first-run',
+  ], { detached: true, stdio: 'ignore' }).unref()
 
+  // Ждём пока Chrome поднимет порт (до 15 попыток по 1 сек)
   console.log('Жду запуска Chrome...')
-  await new Promise(r => setTimeout(r, 4000))
+  const http = require('http')
+  for (let i = 0; i < 15; i++) {
+    await new Promise(r => setTimeout(r, 1000))
+    const ok = await new Promise(r => {
+      http.get('http://127.0.0.1:9222/json/version', res => r(res.statusCode === 200)).on('error', () => r(false))
+    })
+    if (ok) break
+  }
 
   // Подключаемся
-  const browser = await chromium.connectOverCDP('http://localhost:9222')
+  const browser = await chromium.connectOverCDP('http://127.0.0.1:9222')
   const ctx  = browser.contexts()[0] || await browser.newContext()
   const page = ctx.pages()[0]        || await ctx.newPage()
   if (!page.url().includes('lichess') && !page.url().includes('chess.com')) {
