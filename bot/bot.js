@@ -133,36 +133,43 @@ function startCommandListener(page) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Задержка перед ходом
+// Задержка перед ходом — имитирует живого человека
 // ─────────────────────────────────────────────────────────────────────────────
-function humanDelay(remainingSecs, moveNum) {
-  // Дебют: первые OPENING_MOVES ходов — быстро как по теории
-  if (moveNum <= OPENING_MOVES) {
-    return 150 + Math.random() * 350
+function humanDelay(remainingSecs, moveNum, isFast) {
+  // Режим быстрой серии (бот "видит план" и режет несколько ходов подряд)
+  if (isFast) return 400 + Math.random() * 800
+
+  // Дебютные ходы вне книги — чуть быстрее
+  if (moveNum <= OPENING_MOVES) return 1000 + Math.random() * 2500
+
+  // Паника: < 8 сек
+  if (remainingSecs !== null && remainingSecs < 8)  return 300 + Math.random() * 600
+  // Мало времени: < 20 сек
+  if (remainingSecs !== null && remainingSecs < 20) return 700 + Math.random() * 1800
+  // Цейтнот: < 45 сек
+  if (remainingSecs !== null && remainingSecs < 45) return 1500 + Math.random() * 3500
+
+  // Основной режим — % от оставшегося времени (как живой игрок)
+  if (remainingSecs !== null) {
+    const pct = 0.015 + Math.random() * 0.045   // 1.5% – 6% от остатка
+    let ms = remainingSecs * pct * 1000
+    // 20% шанс: "глубокий расчёт" — удвоить время на ход
+    if (Math.random() < 0.20) ms *= 1.4 + Math.random() * 1.2
+    return Math.max(1200, Math.min(55000, ms))
   }
 
-  // Паник-режим: < 10 сек
-  if (remainingSecs !== null && remainingSecs < 10) {
-    return 80 + Math.random() * 150
-  }
-  // Мало времени: < 30 сек
-  if (remainingSecs !== null && remainingSecs < 30) {
-    return 150 + Math.random() * 300
-  }
-
-  // Обычная игра — случайные профили
+  // Нет часов (без инкремента, оффлайн) — случайные профили
   const r = Math.random()
-  if (r < 0.15) return 200  + Math.random() * 300
-  if (r < 0.60) return 500  + Math.random() * 1000
-  if (r < 0.85) return 1200 + Math.random() * 1500
-  return 2500 + Math.random() * 2500
+  if (r < 0.15) return 600  + Math.random() * 1200
+  if (r < 0.55) return 2500 + Math.random() * 5000
+  if (r < 0.80) return 6000 + Math.random() * 7000
+  return 12000 + Math.random() * 18000
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Время на движок (дебют — быстрее)
+// Время на движок — всегда глубина, которую установил пользователь
 // ─────────────────────────────────────────────────────────────────────────────
-function engineCmd(moveNum) {
-  if (moveNum <= OPENING_MOVES) return 'go movetime 500'
+function engineCmd() {
   return `go depth ${DEPTH}`
 }
 
@@ -183,7 +190,7 @@ async function readClockSecs(page) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Stockfish engine
+// Stockfish engine (MultiPV=3, иногда играем не лучший ход)
 // ─────────────────────────────────────────────────────────────────────────────
 async function initEngine() {
   const sfExe = path.join(__dirname, 'stockfish.exe')
@@ -191,6 +198,7 @@ async function initEngine() {
 
   let bestMoveCb = null
   let readyOkCb  = null
+  let multiMoves = {}   // { 1: {move,score}, 2: {move,score}, 3: {move,score} }
   let buf        = ''
 
   proc.on('error', (err) => {
@@ -205,11 +213,37 @@ async function initEngine() {
     for (const raw of lines) {
       const line = raw.trim()
       if (line === 'readyok' && readyOkCb) { readyOkCb(); readyOkCb = null }
+
+      // Собираем топ-3 хода из info-строк
+      if (line.startsWith('info') && line.includes('multipv') && line.includes(' pv ')) {
+        const mpM = line.match(/multipv (\d+)/)
+        const pvM = line.match(/ pv ([a-h][1-8][a-h][1-8][qrbn]?)/)
+        const cpM = line.match(/score cp (-?\d+)/)
+        if (mpM && pvM) {
+          multiMoves[parseInt(mpM[1])] = {
+            move:  pvM[1],
+            score: cpM ? parseInt(cpM[1]) : 0,
+          }
+        }
+      }
+
       if (line.startsWith('bestmove') && bestMoveCb) {
-        const move = line.split(' ')[1]
-        const cb = bestMoveCb
+        const best = line.split(' ')[1]
+        const cb   = bestMoveCb
         bestMoveCb = null
-        cb(move === '(none)' || !move ? null : move)
+
+        const m1 = multiMoves[1]?.move || best
+        const m2 = multiMoves[2]?.move
+        const s1 = multiMoves[1]?.score ?? 0
+        const s2 = multiMoves[2]?.score ?? -9999
+        multiMoves = {}
+
+        // 13% шанс сыграть 2-й по качеству ход — если разница < 80cp (не зевок)
+        if (m2 && Math.abs(s1 - s2) < 80 && Math.random() < 0.13) {
+          cb(m2)
+        } else {
+          cb(best === '(none)' || !best ? null : best)
+        }
       }
     }
   })
@@ -219,20 +253,22 @@ async function initEngine() {
   const send = (cmd) => proc.stdin.write(cmd + '\n')
 
   await new Promise(res => { readyOkCb = res; send('uci'); send('isready') })
+  send('setoption name MultiPV value 3')
   send(`setoption name Skill Level value ${SKILL}`)
 
   console.log('Engine ready (Stockfish native)\n')
   console.log('Команды: d <глубина>  s <скилл 0-20>  g <ссылка на игру>')
-  console.log(`Дебют (первые ${OPENING_MOVES} ходов): movetime 500мс | Миттельшпиль: depth ${DEPTH}\n`)
+  console.log(`Depth: ${DEPTH} | Skill: ${SKILL}\n`)
 
   return {
-    getBestMove(fen, moveNum) {
+    getBestMove(fen) {
       return new Promise(res => {
+        multiMoves = {}
         bestMoveCb = res
         send('stop')
         send(`setoption name Skill Level value ${SKILL}`)
         send(`position fen ${fen}`)
-        send(engineCmd(moveNum))
+        send(engineCmd())
       })
     },
     quit() { send('quit') },
@@ -283,14 +319,24 @@ async function readChessComState(page) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Кликаем по клетке
+// Кликаем по клетке — с имитацией движения мыши как у человека
 // ─────────────────────────────────────────────────────────────────────────────
 async function clickSquare(page, square, boardBox, isFlipped) {
   const file = square.charCodeAt(0) - 97
   const rank = parseInt(square[1]) - 1
   const sz   = boardBox.width / 8
-  const x    = boardBox.x + (isFlipped ? (7 - file) : file)        * sz + sz / 2
-  const y    = boardBox.y + (isFlipped ? rank        : (7 - rank)) * sz + sz / 2
+  const x    = boardBox.x + (isFlipped ? (7 - file) : file) * sz + sz / 2
+  const y    = boardBox.y + (isFlipped ? rank : (7 - rank)) * sz + sz / 2
+
+  // 60% шанс: навести мышь на соседнее поле, потом на нужное (имитация взгляда)
+  if (Math.random() < 0.60) {
+    const dx = (Math.random() < 0.5 ? -1 : 1) * (0.6 + Math.random() * 0.9)
+    const dy = (Math.random() < 0.5 ? -1 : 1) * (0.6 + Math.random() * 0.9)
+    await page.mouse.move(x + dx * sz, y + dy * sz)
+    await page.waitForTimeout(70 + Math.random() * 180)
+  }
+  await page.mouse.move(x, y)
+  await page.waitForTimeout(25 + Math.random() * 55)
   await page.mouse.click(x, y)
 }
 
@@ -330,24 +376,42 @@ async function waitForGamePage(page, isLichess) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Открываем браузер (или подключаемся к существующему через CDP)
+// Открываем браузер:
+//   1. Если запущен Chrome с --remote-debugging-port=9222 → подключаемся к нему
+//   2. Иначе → открываем Chrome с сохранённым профилем (куки/сессия между запусками)
 // ─────────────────────────────────────────────────────────────────────────────
 async function openBrowser(siteUrl) {
-  if (process.env.CDP === '1') {
-    console.log('Подключаюсь к существующему Chrome на порту 9222...')
-    const browser = await chromium.connectOverCDP('http://localhost:9222')
+  // Пробуем CDP (пользовательский Chrome с debug-портом)
+  try {
+    const browser = await chromium.connectOverCDP('http://localhost:9222', { timeout: 3000 })
     const ctx  = browser.contexts()[0] || await browser.newContext()
-    const page = ctx.pages()[0]       || await ctx.newPage()
-    const url  = page.url()
-    if (!url.includes('lichess') && !url.includes('chess.com')) {
+    const page = ctx.pages()[0]        || await ctx.newPage()
+    if (!page.url().includes('lichess') && !page.url().includes('chess.com')) {
       await page.goto(siteUrl)
     }
+    console.log('Подключился к твоему Chrome (CDP)')
     return { browser, page }
-  }
-  const browser = await chromium.launch({ channel: 'chrome', headless: false, args: ['--start-maximized'] })
-  const page    = await browser.newPage()
+  } catch { /* CDP недоступен */ }
+
+  // Запускаем Chrome с сохранённым профилем — куки/логин сохраняются между запусками
+  const profileDir = path.join(__dirname, 'chrome-profile')
+  console.log('Запускаю Chrome с сохранённым профилем...')
+  console.log('(При первом запуске войди в аккаунт — в следующий раз уже будешь залогинен)\n')
+  const ctx  = await chromium.launchPersistentContext(profileDir, {
+    channel: 'chrome',
+    headless: false,
+    args: [
+      '--start-maximized',
+      '--disable-blink-features=AutomationControlled',  // скрываем автоматизацию от Cloudflare
+    ],
+  })
+  // Убираем navigator.webdriver — главный признак по которому Cloudflare банит
+  await ctx.addInitScript(() => {
+    Object.defineProperty(navigator, 'webdriver', { get: () => undefined })
+  })
+  const page = ctx.pages()[0] || await ctx.newPage()
   await page.goto(siteUrl)
-  return { browser, page }
+  return { browser: { close: () => ctx.close() }, page }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -378,6 +442,7 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
       console.log(`Играю за: ${myColor === 'w' ? '♔ Белых' : '♚ Чёрных'} | Depth:${DEPTH} Skill:${SKILL}`)
 
       let lastFen = ''
+      let fastStreakLeft = 0  // сколько ходов ещё в "быстрой серии"
 
       // Игровой цикл
       while (true) {
@@ -402,23 +467,29 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
         const moveNum = Math.ceil(chess.history().length / 2) + 1
         const book    = bookMove(chess)
 
+        // Fast streak: иногда бот "видит план" и режет несколько ходов быстро
+        if (!book && fastStreakLeft <= 0 && Math.random() < 0.18) {
+          fastStreakLeft = 2 + Math.floor(Math.random() * 4)  // 2-5 быстрых ходов
+        }
+        const isFast = !book && fastStreakLeft > 0
+        if (isFast) fastStreakLeft--
+
         let from, to, promo, tag, ms = 0
         if (book) {
           from = book.from; to = book.to; promo = book.promotion || null; tag = '[книга]'
           process.stdout.write(`Ход ${moveNum} ${tag} | `)
         } else {
-          const isOpening = moveNum <= OPENING_MOVES
-          tag = isOpening ? '[дебют]' : `[d${DEPTH}s${SKILL}]`
+          tag = isFast ? `[быстро d${DEPTH}]` : `[d${DEPTH}s${SKILL}]`
           process.stdout.write(`Ход ${moveNum} ${tag} | Думаю... `)
           const t0 = Date.now()
-          const uciMove = await engine.getBestMove(fen, moveNum)
+          const uciMove = await engine.getBestMove(fen)
           ms = Date.now() - t0
           if (!uciMove) { console.log('(нет хода)'); continue }
           from = uciMove.slice(0, 2); to = uciMove.slice(2, 4); promo = uciMove[4] || null
         }
 
         const secs  = isLichess ? await readClockSecs(page) : null
-        const delay = book ? (200 + Math.random() * 400) : humanDelay(secs, moveNum)
+        const delay = book ? (200 + Math.random() * 400) : humanDelay(secs, moveNum, isFast)
         console.log(`${from}→${to} (${ms ? `${ms}мс думал, ` : ''}${Math.round(delay)}мс пауза${secs !== null ? `, ${Math.round(secs)}с осталось` : ''})`)
 
         await page.waitForTimeout(delay)
