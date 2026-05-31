@@ -39,6 +39,7 @@ const SITE = (process.env.SITE || 'lichess').toLowerCase()
 let AUTO_DEPTH = true    // автоподбор глубины по контролю времени
 let isBulletGame = false // текущая игра — пуля?
 let lastEngineScore = 0  // последняя оценка движка (cp)
+let PAUSED = false       // пауза: бот не делает ходы
 
 // Количество ходов которые считаются дебютом (быстрая игра)
 const OPENING_MOVES = 14
@@ -158,11 +159,14 @@ function startCommandListener(page) {
     } else if (cmd === 'a') {
       AUTO_DEPTH = true
       console.log('\n→ Авто-глубина включена (вступит в силу с начала следующей игры)')
+    } else if (cmd === 'p') {
+      PAUSED = !PAUSED
+      console.log(PAUSED ? '\n⏸  Бот на паузе — ходы не делает' : '\n▶  Бот возобновлён')
     } else if (cmd === 'g' && val) {
       console.log(`\n→ Перехожу на: ${val}`)
       page.goto(val).catch(() => {})
     } else if (line.trim()) {
-      console.log('Команды: d <глубина>   s <скилл 0-20>   a (авто-глубина)   g <ссылка на игру>')
+      console.log('Команды: d <глубина>   s <скилл 0-20>   a (авто-глубина)   p (пауза/продолжить)   g <ссылка на игру>')
     }
   })
 }
@@ -583,6 +587,8 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
         try { state = await readState(page) } catch { break }
         const { sanMoves, isFlipped: flipped, gameOver } = state
         if (gameOver) { console.log('Игра окончена.'); break }
+
+        if (PAUSED) continue
 
         const chess = new Chess()
         for (const san of sanMoves) { try { chess.move(san) } catch {} }
