@@ -295,8 +295,31 @@ async function clickSquare(page, square, boardBox, isFlipped) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Ждём активную игровую страницу
+// Мониторинг буфера обмена — переходит только на игровые ссылки Lichess
 // ─────────────────────────────────────────────────────────────────────────────
+function startClipboardWatcher(page, isLichess) {
+  if (!isLichess) return
+  let lastClip = ''
+
+  // Разрешаем чтение буфера обмена в браузере
+  page.context().grantPermissions(['clipboard-read']).catch(() => {})
+
+  setInterval(async () => {
+    try {
+      const text = (await page.evaluate(() => navigator.clipboard.readText())).trim()
+      if (!text || text === lastClip) return
+      lastClip = text
+
+      // Проверяем строго: это должна быть именно ссылка на игру Lichess
+      if (isGameUrl(text)) {
+        console.log(`\nБуфер: игровая ссылка → ${text}`)
+        await page.goto(text)
+      }
+    } catch { /* нет прав или буфер недоступен */ }
+  }, 800)
+}
+
+
 async function waitForGamePage(page, isLichess) {
   if (isLichess) {
     // Ждём пока URL станет игровым (lichess.org/XXXXXXXX)
@@ -333,9 +356,11 @@ async function openBrowser(siteUrl) {
 async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
   const { browser, page } = await openBrowser(siteUrl)
   console.log(`\nБраузер открыт: ${siteUrl}`)
-  console.log('Войди в аккаунт — бот следит за страницей сам.\n')
+  console.log('Войди в аккаунт — бот следит за страницей сам.')
+  console.log('Скопируй ссылку на игру — бот перейдёт автоматически.\n')
 
   startCommandListener(page)
+  startClipboardWatcher(page, isLichess)
 
   try {
     // Внешний цикл: следим за игровыми страницами
