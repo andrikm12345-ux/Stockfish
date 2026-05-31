@@ -129,11 +129,14 @@ function startCommandListener(page) {
     } else if (cmd === 's' && val) {
       SKILL = Math.min(20, Math.max(0, parseInt(val)))
       console.log(`\n→ Skill = ${SKILL}`)
+    } else if (cmd === 'a') {
+      AUTO_DEPTH = true
+      console.log('\n→ Авто-глубина включена (вступит в силу с начала следующей игры)')
     } else if (cmd === 'g' && val) {
       console.log(`\n→ Перехожу на: ${val}`)
       page.goto(val).catch(() => {})
     } else if (line.trim()) {
-      console.log('Команды: d <глубина>   s <скилл 0-20>   g <ссылка на игру>')
+      console.log('Команды: d <глубина>   s <скилл 0-20>   a (авто-глубина)   g <ссылка на игру>')
     }
   })
 }
