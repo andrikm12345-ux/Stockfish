@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'unsafe-inline'">
+  <title>Stockfish Bot</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0 }
+
+    body {
+      background: #0d1117;
+      color: #c9d1d9;
+      font-family: 'Segoe UI', sans-serif;
+      font-size: 14px;
+      padding: 18px;
+      user-select: none;
+    }
+
+    h1 {
+      font-size: 18px;
+      color: #58a6ff;
+      text-align: center;
+      margin-bottom: 16px;
+      letter-spacing: 1px;
+    }
+
+    .card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 14px 16px;
+      margin-bottom: 10px;
+    }
+
+    .row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .label { font-size: 12px; color: #8b949e; }
+    .val   { color: #e6edf3; font-weight: 600; }
+
+    /* Сайт */
+    .site-group { display: flex; gap: 8px; }
+    .site-btn {
+      flex: 1; padding: 8px;
+      background: #21262d;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      color: #8b949e;
+      cursor: pointer;
+      font-size: 13px;
+      transition: all .15s;
+    }
+    .site-btn.active {
+      background: #1f6feb;
+      border-color: #58a6ff;
+      color: #fff;
+    }
+
+    /* Слайдеры */
+    input[type=range] {
+      width: 100%;
+      accent-color: #58a6ff;
+      cursor: pointer;
+      margin-top: 2px;
+    }
+    input[type=range]:disabled { opacity: 0.35; cursor: default; }
+
+    /* Авто чекбокс */
+    .auto-label {
+      display: flex; align-items: center; gap: 5px;
+      color: #8b949e; cursor: pointer; font-size: 12px;
+    }
+    .auto-label input {
+      accent-color: #58a6ff;
+      width: 14px; height: 14px; cursor: pointer;
+    }
+
+    /* Статус */
+    .status {
+      text-align: center;
+      font-size: 12px;
+      color: #8b949e;
+      margin: 4px 0 8px;
+    }
+    .status.running { color: #3fb950; }
+    .status.paused  { color: #d29922; }
+
+    /* Кнопки */
+    .btn-row { display: flex; gap: 8px; margin-bottom: 10px; }
+
+    button {
+      flex: 1; padding: 10px;
+      border: none; border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px; font-weight: 600;
+      transition: all .15s;
+    }
+    button:disabled { opacity: 0.4; cursor: default; }
+
+    #startBtn { background: #238636; color: #fff; }
+    #startBtn:hover:not(:disabled) { background: #2ea043; }
+    #startBtn.stop { background: #da3633; }
+    #startBtn.stop:hover:not(:disabled) { background: #f85149; }
+
+    #pauseBtn { background: #9e6a03; color: #fff; }
+    #pauseBtn:hover:not(:disabled) { background: #bb8009; }
+    #pauseBtn.resume { background: #1f6feb; }
+    #pauseBtn.resume:hover:not(:disabled) { background: #388bfd; }
+
+    #enterBtn {
+      flex: 0 0 auto; padding: 10px 16px;
+      background: #21262d;
+      border: 1px solid #30363d;
+      color: #8b949e;
+    }
+    #enterBtn:hover:not(:disabled) { background: #30363d; color: #c9d1d9; }
+
+    /* Лог */
+    #log {
+      width: 100%; height: 230px;
+      background: #010409;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      color: #7ee787;
+      font-family: 'Cascadia Code', 'Consolas', monospace;
+      font-size: 11px;
+      padding: 10px;
+      resize: none;
+      outline: none;
+    }
+
+    .log-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+
+    #clearBtn {
+      flex: 0 0 auto;
+      padding: 2px 8px;
+      font-size: 11px;
+      font-weight: 400;
+      background: transparent;
+      border: 1px solid #30363d;
+      border-radius: 4px;
+      color: #8b949e;
+    }
+    #clearBtn:hover { background: #21262d; color: #c9d1d9; }
+  </style>
+</head>
+<body>
+  <h1>♟ Stockfish Bot</h1>
+
+  <div class="card">
+    <div class="row"><span class="label">Сайт</span></div>
+    <div class="site-group">
+      <button class="site-btn active" data-site="lichess">Lichess</button>
+      <button class="site-btn" data-site="chess">Chess.com</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <span class="label">Глубина: <span class="val" id="depthVal">авто</span></span>
+      <label class="auto-label">
+        <input type="checkbox" id="autoDepth" checked> Авто
+      </label>
+    </div>
+    <input type="range" id="depth" min="1" max="20" value="8" disabled>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <span class="label">Скилл: <span class="val" id="skillVal">15</span></span>
+    </div>
+    <input type="range" id="skill" min="0" max="20" value="15">
+  </div>
+
+  <p class="status" id="status">Остановлен</p>
+
+  <div class="btn-row">
+    <button id="startBtn">▶ СТАРТ</button>
+    <button id="pauseBtn" disabled>⏸ ПАУЗА</button>
+    <button id="enterBtn" disabled title="Отправить ENTER боту (для подтверждения входа)">↵</button>
+  </div>
+
+  <div class="log-header">
+    <span class="label">Лог</span>
+    <button id="clearBtn">очистить</button>
+  </div>
+  <textarea id="log" readonly placeholder="Лог бота появится здесь..."></textarea>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
