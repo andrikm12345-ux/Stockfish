@@ -1,6 +1,6 @@
 /**
  * Lichess/Chess.com auto-play bot
- * Uses Playwright (installed Chrome) + Stockfish native binary.
+ * Uses Playwright + Stockfish native binary.
  *
  * Setup:
  *   1. npm install
@@ -8,13 +8,19 @@
  *   3. node bot.js
  *
  * Env vars:
- *   DEPTH=18   starting depth (default 18)
- *   SITE=lichess | chess (default lichess)
+ *   DEPTH=18      starting depth (default 18)
+ *   SITE=lichess  lichess | chess (default lichess)
+ *   CDP=1         подключиться к уже открытому Chrome (см. ниже)
  *
- * Console commands while running:
- *   d 12          set depth to 12
- *   s 10          set skill level (0-20)
- *   g <url>       перейти на игру по ссылке
+ * Режим CDP (свой браузер):
+ *   Запусти Chrome с флагом:
+ *     "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222
+ *   Затем: CDP=1 node bot.js
+ *
+ * Console commands:
+ *   d 12    set depth
+ *   s 10    set skill (0-20)
+ *   g <url> перейти на игру
  */
 
 'use strict'
@@ -301,6 +307,120 @@ async function waitForGamePage(page, isLichess) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Открываем браузер (или подключаемся к существующему через CDP)
+// ─────────────────────────────────────────────────────────────────────────────
+async function openBrowser(siteUrl) {
+  if (process.env.CDP === '1') {
+    console.log('Подключаюсь к существующему Chrome на порту 9222...')
+    const browser = await chromium.connectOverCDP('http://localhost:9222')
+    const ctx  = browser.contexts()[0] || await browser.newContext()
+    const page = ctx.pages()[0]       || await ctx.newPage()
+    const url  = page.url()
+    if (!url.includes('lichess') && !url.includes('chess.com')) {
+      await page.goto(siteUrl)
+    }
+    return { browser, page }
+  }
+  const browser = await chromium.launch({ channel: 'chrome', headless: false, args: ['--start-maximized'] })
+  const page    = await browser.newPage()
+  await page.goto(siteUrl)
+  return { browser, page }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Одна браузерная сессия (игровой цикл)
+// ─────────────────────────────────────────────────────────────────────────────
+async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
+  const { browser, page } = await openBrowser(siteUrl)
+  console.log(`\nБраузер открыт: ${siteUrl}`)
+  console.log('Войди в аккаунт — бот следит за страницей сам.\n')
+
+  startCommandListener(page)
+
+  try {
+    // Внешний цикл: следим за игровыми страницами
+    while (true) {
+      console.log('\nЖду игровую страницу...')
+      await waitForGamePage(page, isLichess)
+      await page.waitForTimeout(1000)
+
+      let initialState
+      try { initialState = await readState(page) } catch { await page.waitForTimeout(2000); continue }
+      if (initialState.gameOver) { await page.waitForTimeout(2000); continue }
+
+      const { isFlipped: fl } = initialState
+      const myColor = fl ? 'b' : 'w'
+      console.log(`Играю за: ${myColor === 'w' ? '♔ Белых' : '♚ Чёрных'} | Depth:${DEPTH} Skill:${SKILL}`)
+
+      let lastFen = ''
+
+      // Игровой цикл
+      while (true) {
+        await page.waitForTimeout(250)
+        if (isLichess && !isGameUrl(page.url())) { console.log('Игра окончена (редирект).'); break }
+
+        let state
+        try { state = await readState(page) } catch { break }
+        const { sanMoves, isFlipped: flipped, gameOver } = state
+        if (gameOver) { console.log('Игра окончена.'); break }
+
+        const chess = new Chess()
+        for (const san of sanMoves) { try { chess.move(san) } catch {} }
+
+        const fen = chess.fen()
+        if (fen === lastFen) continue
+        lastFen = fen
+
+        if (chess.turn() !== myColor) continue
+        if (chess.isGameOver()) break
+
+        const moveNum = Math.ceil(chess.history().length / 2) + 1
+        const book    = bookMove(chess)
+
+        let from, to, promo, tag, ms = 0
+        if (book) {
+          from = book.from; to = book.to; promo = book.promotion || null; tag = '[книга]'
+          process.stdout.write(`Ход ${moveNum} ${tag} | `)
+        } else {
+          const isOpening = moveNum <= OPENING_MOVES
+          tag = isOpening ? '[дебют]' : `[d${DEPTH}s${SKILL}]`
+          process.stdout.write(`Ход ${moveNum} ${tag} | Думаю... `)
+          const t0 = Date.now()
+          const uciMove = await engine.getBestMove(fen, moveNum)
+          ms = Date.now() - t0
+          if (!uciMove) { console.log('(нет хода)'); continue }
+          from = uciMove.slice(0, 2); to = uciMove.slice(2, 4); promo = uciMove[4] || null
+        }
+
+        const secs  = isLichess ? await readClockSecs(page) : null
+        const delay = book ? (200 + Math.random() * 400) : humanDelay(secs, moveNum)
+        console.log(`${from}→${to} (${ms ? `${ms}мс думал, ` : ''}${Math.round(delay)}мс пауза${secs !== null ? `, ${Math.round(secs)}с осталось` : ''})`)
+
+        await page.waitForTimeout(delay)
+
+        const boardBox = await page.locator(boardSel).first().boundingBox()
+        if (!boardBox) { console.log('Доска исчезла'); break }
+
+        await clickSquare(page, from, boardBox, flipped)
+        await page.waitForTimeout(60 + Math.random() * 80)
+        await clickSquare(page, to, boardBox, flipped)
+
+        if (promo) {
+          await page.waitForTimeout(300)
+          const qBtn = isLichess
+            ? page.locator('.promotion-choice piece.queen').first()
+            : page.locator('.promotion-piece[data-piece="q"]').first()
+          if (await qBtn.isVisible({ timeout: 1000 }).catch(() => false)) await qBtn.click()
+        }
+      }
+      await page.waitForTimeout(1500)
+    }
+  } finally {
+    try { await browser.close() } catch {}
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Main
 // ─────────────────────────────────────────────────────────────────────────────
 async function main() {
@@ -314,111 +434,25 @@ async function main() {
   const boardSel  = isLichess ? 'cg-board' : '.board'
   const readState = isLichess ? readLichessState : readChessComState
 
-  const browser = await chromium.launch({ channel: 'chrome', headless: false, args: ['--start-maximized'] })
-  const page    = await browser.newPage()
-  await page.goto(siteUrl)
-
-  console.log(`Открыт ${siteUrl}`)
-  console.log('Войди в аккаунт и нажми ENTER — бот будет следить за играми сам.\n')
-  console.log('Или вставь ссылку на приглашение командой:  g <url>\n')
+  console.log('Нажми ENTER для запуска...')
   await new Promise(r => process.stdin.once('data', r))
 
   const engine = await initEngine()
-  startCommandListener(page)
 
-  // Внешний цикл: следим за игровыми страницами
+  // Авто-рестарт: если браузер закрыт — открываем снова
   while (true) {
-    console.log('\nЖду игровую страницу...')
-    await waitForGamePage(page, isLichess)
-    await page.waitForTimeout(1000)
-
-    let initialState
-    try { initialState = await readState(page) } catch { await page.waitForTimeout(2000); continue }
-    if (initialState.gameOver) { await page.waitForTimeout(2000); continue }
-
-    const { isFlipped: fl } = initialState
-    const myColor = fl ? 'b' : 'w'
-    console.log(`Играю за: ${myColor === 'w' ? '♔ Белых' : '♚ Чёрных'} | Depth:${DEPTH} Skill:${SKILL}`)
-
-    let lastFen = ''
-
-    // Игровой цикл
-    while (true) {
-      await page.waitForTimeout(250)
-
-      // Выходим если URL сменился (игра закончилась / редирект)
-      if (isLichess && !isGameUrl(page.url())) { console.log('Игра окончена (редирект).'); break }
-
-      let state
-      try { state = await readState(page) } catch { break }
-      const { sanMoves, isFlipped: flipped, gameOver } = state
-      if (gameOver) { console.log('Игра окончена.'); break }
-
-      const chess = new Chess()
-      for (const san of sanMoves) {
-        try { chess.move(san) } catch {}
-      }
-
-      const fen = chess.fen()
-      if (fen === lastFen) continue
-      lastFen = fen
-
-      if (chess.turn() !== myColor) continue
-      if (chess.isGameOver()) break
-
-      const moveNum = Math.ceil(chess.history().length / 2) + 1
-
-      // Сначала пробуем книгу дебютов — мгновенный книжный ход
-      const book = bookMove(chess)
-
-      let from, to, promo, tag, ms = 0
-      if (book) {
-        from  = book.from
-        to    = book.to
-        promo = book.promotion || null
-        tag   = '[книга]'
-        process.stdout.write(`Ход ${moveNum} ${tag} | `)
+    try {
+      await runSession(engine, isLichess, siteUrl, boardSel, readState)
+    } catch (err) {
+      if (err.message?.includes('closed') || err.message?.includes('Target page')) {
+        console.log('\nБраузер закрыт — перезапускаю через 3 сек...')
+        await new Promise(r => setTimeout(r, 3000))
       } else {
-        const isOpening = moveNum <= OPENING_MOVES
-        tag = isOpening ? '[дебют]' : `[d${DEPTH}s${SKILL}]`
-        process.stdout.write(`Ход ${moveNum} ${tag} | Думаю... `)
-        const t0      = Date.now()
-        const uciMove = await engine.getBestMove(fen, moveNum)
-        ms            = Date.now() - t0
-        if (!uciMove) { console.log('(нет хода)'); continue }
-        from  = uciMove.slice(0, 2)
-        to    = uciMove.slice(2, 4)
-        promo = uciMove[4] || null
-      }
-
-      const secs  = isLichess ? await readClockSecs(page) : null
-      // Книжные ходы — с небольшой человеческой паузой
-      const delay = book ? (200 + Math.random() * 400) : humanDelay(secs, moveNum)
-
-      console.log(`${from}→${to} (${ms ? `${ms}мс думал, ` : ''}${Math.round(delay)}мс пауза${secs !== null ? `, ${Math.round(secs)}с осталось` : ''})`)
-
-      await page.waitForTimeout(delay)
-
-      const boardBox = await page.locator(boardSel).first().boundingBox()
-      if (!boardBox) { console.log('Доска исчезла'); break }
-
-      await clickSquare(page, from, boardBox, flipped)
-      await page.waitForTimeout(60 + Math.random() * 80)
-      await clickSquare(page, to, boardBox, flipped)
-
-      if (promo) {
-        await page.waitForTimeout(300)
-        const qBtn = isLichess
-          ? page.locator('.promotion-choice piece.queen').first()
-          : page.locator('.promotion-piece[data-piece="q"]').first()
-        if (await qBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
-          await qBtn.click()
-        }
+        console.error('\nОшибка сессии:', err.message)
+        await new Promise(r => setTimeout(r, 2000))
       }
     }
-
-    await page.waitForTimeout(1500)
   }
 }
 
-main().catch(err => { console.error('\nОшибка:', err.message); process.exit(1) })
+main().catch(err => { console.error('\nФатальная ошибка:', err.message); process.exit(1) })
