@@ -31,6 +31,7 @@ const { spawn }    = require('child_process')
 const readline     = require('readline')
 const path         = require('path')
 const os           = require('os')
+const fs           = require('fs')
 
 let DEPTH = parseInt(process.env.DEPTH || '18')
 let SKILL = 20
@@ -378,55 +379,51 @@ async function waitForGamePage(page, isLichess) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Открываем браузер:
-//   1. Если запущен Chrome с --remote-debugging-port=9222 → подключаемся к нему
-//   2. Иначе → открываем Chrome с сохранённым профилем (куки/сессия между запусками)
+//   1. Пробуем CDP (Chrome уже запущен с портом 9222)
+//   2. Если нет — закрываем Chrome и перезапускаем его с портом (твой профиль сохранится)
 // ─────────────────────────────────────────────────────────────────────────────
 async function openBrowser(siteUrl) {
-  // Пробуем CDP (пользовательский Chrome с debug-портом)
+  // Пробуем подключиться к уже открытому Chrome
   try {
-    const browser = await chromium.connectOverCDP('http://localhost:9222', { timeout: 3000 })
+    const browser = await chromium.connectOverCDP('http://localhost:9222', { timeout: 2000 })
     const ctx  = browser.contexts()[0] || await browser.newContext()
     const page = ctx.pages()[0]        || await ctx.newPage()
     if (!page.url().includes('lichess') && !page.url().includes('chess.com')) {
       await page.goto(siteUrl)
     }
-    console.log('Подключился к твоему Chrome (CDP)')
+    console.log('Подключился к Chrome (CDP)')
     return { browser, page }
   } catch { /* CDP недоступен */ }
 
-  // Пробуем твой настоящий профиль Chrome (там уже есть логин)
-  const realProfile = path.join(
-    'C:\\Users', os.userInfo().username,
-    'AppData\\Local\\Google\\Chrome\\User Data'
-  )
-  const botProfile = path.join(__dirname, 'chrome-profile')
+  // Находим Chrome
+  const chromePaths = [
+    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+    path.join(os.homedir(), 'AppData\\Local\\Google\\Chrome\\Application\\chrome.exe'),
+  ]
+  const chromeExe = chromePaths.find(p => fs.existsSync(p))
+  if (!chromeExe) throw new Error('Google Chrome не найден — установи Chrome.')
 
-  for (const profileDir of [realProfile, botProfile]) {
-    try {
-      const label = profileDir === realProfile ? 'твоим профилем Chrome' : 'профилем бота'
-      console.log(`Запускаю Chrome с ${label}...`)
-      const ctx = await chromium.launchPersistentContext(profileDir, {
-        channel: 'chrome',
-        headless: false,
-        args: [
-          '--start-maximized',
-          '--disable-blink-features=AutomationControlled',
-        ],
-      })
-      await ctx.addInitScript(() => {
-        Object.defineProperty(navigator, 'webdriver', { get: () => undefined })
-      })
-      const page = ctx.pages()[0] || await ctx.newPage()
-      const url  = page.url()
-      if (!url.includes('lichess') && !url.includes('chess.com')) {
-        await page.goto(siteUrl)
-      }
-      return { browser: { close: () => ctx.close() }, page }
-    } catch (e) {
-      console.log(`Профиль недоступен (${e.message.slice(0, 60)}), пробую следующий...`)
-    }
+  // Закрываем Chrome если открыт, запускаем с портом отладки
+  console.log('Перезапускаю Chrome с портом отладки (аккаунт сохранится)...')
+  try { require('child_process').execSync('taskkill /F /IM chrome.exe', { stdio: 'ignore' }) } catch {}
+  await new Promise(r => setTimeout(r, 1500))
+
+  spawn(chromeExe, ['--remote-debugging-port=9222', '--start-maximized'], {
+    detached: true, stdio: 'ignore',
+  }).unref()
+
+  console.log('Жду запуска Chrome...')
+  await new Promise(r => setTimeout(r, 4000))
+
+  // Подключаемся
+  const browser = await chromium.connectOverCDP('http://localhost:9222')
+  const ctx  = browser.contexts()[0] || await browser.newContext()
+  const page = ctx.pages()[0]        || await ctx.newPage()
+  if (!page.url().includes('lichess') && !page.url().includes('chess.com')) {
+    await page.goto(siteUrl)
   }
-  throw new Error('Не удалось запустить Chrome ни с одним профилем')
+  return { browser, page }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
