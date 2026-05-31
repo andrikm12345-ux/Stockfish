@@ -400,7 +400,14 @@ async function openBrowser(siteUrl) {
   const ctx  = await chromium.launchPersistentContext(profileDir, {
     channel: 'chrome',
     headless: false,
-    args: ['--start-maximized'],
+    args: [
+      '--start-maximized',
+      '--disable-blink-features=AutomationControlled',  // скрываем автоматизацию от Cloudflare
+    ],
+  })
+  // Убираем navigator.webdriver — главный признак по которому Cloudflare банит
+  await ctx.addInitScript(() => {
+    Object.defineProperty(navigator, 'webdriver', { get: () => undefined })
   })
   const page = ctx.pages()[0] || await ctx.newPage()
   await page.goto(siteUrl)
