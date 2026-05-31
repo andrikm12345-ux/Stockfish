@@ -376,28 +376,35 @@ async function waitForGamePage(page, isLichess) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Открываем браузер — сначала пробуем CDP (твой Chrome), иначе запускаем новый
+// Открываем браузер:
+//   1. Если запущен Chrome с --remote-debugging-port=9222 → подключаемся к нему
+//   2. Иначе → открываем Chrome с сохранённым профилем (куки/сессия между запусками)
 // ─────────────────────────────────────────────────────────────────────────────
 async function openBrowser(siteUrl) {
-  // Автоматически пробуем подключиться к уже открытому Chrome на порту 9222
+  // Пробуем CDP (пользовательский Chrome с debug-портом)
   try {
     const browser = await chromium.connectOverCDP('http://localhost:9222', { timeout: 3000 })
     const ctx  = browser.contexts()[0] || await browser.newContext()
     const page = ctx.pages()[0]        || await ctx.newPage()
-    const url  = page.url()
-    if (!url.includes('lichess') && !url.includes('chess.com')) {
+    if (!page.url().includes('lichess') && !page.url().includes('chess.com')) {
       await page.goto(siteUrl)
     }
     console.log('Подключился к твоему Chrome (CDP)')
     return { browser, page }
-  } catch {
-    // Chrome с портом 9222 не найден — запускаем свой
-  }
-  console.log('Запускаю новый Chrome...')
-  const browser = await chromium.launch({ channel: 'chrome', headless: false, args: ['--start-maximized'] })
-  const page    = await browser.newPage()
+  } catch { /* CDP недоступен */ }
+
+  // Запускаем Chrome с сохранённым профилем — куки/логин сохраняются между запусками
+  const profileDir = path.join(__dirname, 'chrome-profile')
+  console.log('Запускаю Chrome с сохранённым профилем...')
+  console.log('(При первом запуске войди в аккаунт — в следующий раз уже будешь залогинен)\n')
+  const ctx  = await chromium.launchPersistentContext(profileDir, {
+    channel: 'chrome',
+    headless: false,
+    args: ['--start-maximized'],
+  })
+  const page = ctx.pages()[0] || await ctx.newPage()
   await page.goto(siteUrl)
-  return { browser, page }
+  return { browser: { close: () => ctx.close() }, page }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
