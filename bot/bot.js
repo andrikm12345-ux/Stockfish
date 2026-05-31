@@ -36,6 +36,9 @@ const fs           = require('fs')
 let DEPTH = parseInt(process.env.DEPTH || '18')
 let SKILL = 20
 const SITE = (process.env.SITE || 'lichess').toLowerCase()
+let AUTO_DEPTH = true    // автоподбор глубины по контролю времени
+let isBulletGame = false // текущая игра — пуля?
+let lastEngineScore = 0  // последняя оценка движка (cp)
 
 // Количество ходов которые считаются дебютом (быстрая игра)
 const OPENING_MOVES = 14
@@ -121,7 +124,8 @@ function startCommandListener(page) {
 
     if (cmd === 'd' && val) {
       DEPTH = parseInt(val)
-      console.log(`\n→ Depth = ${DEPTH}`)
+      AUTO_DEPTH = false
+      console.log(`\n→ Depth = ${DEPTH} (авто-подбор отключён)`)
     } else if (cmd === 's' && val) {
       SKILL = Math.min(20, Math.max(0, parseInt(val)))
       console.log(`\n→ Skill = ${SKILL}`)
@@ -186,6 +190,25 @@ async function readClockSecs(page) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Определяем тип контроля и авто-выставляем глубину
+// ─────────────────────────────────────────────────────────────────────────────
+async function detectGameType(page) {
+  const secs = await readClockSecs(page)
+  if (secs === null) return
+  isBulletGame = secs < 180
+  if (!AUTO_DEPTH) {
+    const label = secs < 180 ? 'пуля' : secs < 600 ? 'блиц' : 'рапид'
+    console.log(`Контроль: ~${Math.round(secs)}с [${label}] | Depth:${DEPTH} (вручную)`)
+    return
+  }
+  if      (secs < 180) DEPTH = 5
+  else if (secs < 600) DEPTH = 8
+  else                 DEPTH = 12
+  const label = secs < 180 ? 'пуля' : secs < 600 ? 'блиц' : 'рапид'
+  console.log(`Авто-глубина: ~${Math.round(secs)}с → depth ${DEPTH} [${label}]`)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Stockfish engine (MultiPV=3, иногда играем не лучший ход)
 // ─────────────────────────────────────────────────────────────────────────────
 async function initEngine() {
@@ -241,6 +264,7 @@ async function initEngine() {
         const winning = s1 > 200
         const losing  = s1 < -100
         const rnd = Math.random()
+        lastEngineScore = s1
 
         if (!winning && !losing && m3 && Math.abs(s1 - s3) < 50 && rnd < 0.06) {
           cb(m3)  // 3-й ход — только если позиция примерно равная
@@ -484,7 +508,8 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
 
       const { isFlipped: fl } = initialState
       const myColor = fl ? 'b' : 'w'
-      console.log(`Играю за: ${myColor === 'w' ? '♔ Белых' : '♚ Чёрных'} | Depth:${DEPTH} Skill:${SKILL}`)
+      await detectGameType(page)
+      console.log(`Играю за: ${myColor === 'w' ? '♔ Белых' : '♚ Чёрных'} | Depth:${DEPTH} Skill:${SKILL}${AUTO_DEPTH ? ' [авто]' : ''}`)
 
       let lastFen = ''
       let fastStreakLeft = 0  // сколько ходов ещё в "быстрой серии"
@@ -536,6 +561,13 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
         const secs  = isLichess ? await readClockSecs(page) : null
         const delay = book ? (200 + Math.random() * 400) : humanDelay(secs, moveNum, isFast)
         console.log(`${from}→${to} (${ms ? `${ms}мс думал, ` : ''}${Math.round(delay)}мс пауза${secs !== null ? `, ${Math.round(secs)}с осталось` : ''})`)
+
+        // Иногда флагуем в пуле — как живой человек в цейтноте
+        if (!book && isBulletGame && secs !== null && secs < 8 && lastEngineScore < 200 && Math.random() < 0.07) {
+          console.log(`(флаг — ${Math.round(secs)}с → намеренная просрочка)`)
+          await page.waitForTimeout((secs + 2) * 1000)
+          continue
+        }
 
         await page.waitForTimeout(delay)
 
