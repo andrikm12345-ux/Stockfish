@@ -138,34 +138,32 @@ function startCommandListener(page) {
 // Задержка перед ходом — имитирует живого человека
 // ─────────────────────────────────────────────────────────────────────────────
 function humanDelay(remainingSecs, moveNum, isFast) {
-  // Режим быстрой серии (бот "видит план" и режет несколько ходов подряд)
-  if (isFast) return 400 + Math.random() * 800
+  // Режим быстрой серии
+  if (isFast) return 300 + Math.random() * 600
 
-  // Дебютные ходы вне книги — чуть быстрее
-  if (moveNum <= OPENING_MOVES) return 1000 + Math.random() * 2500
+  // Дебютные ходы вне книги
+  if (moveNum <= OPENING_MOVES) return 800 + Math.random() * 2000
 
-  // Паника: < 8 сек
-  if (remainingSecs !== null && remainingSecs < 8)  return 300 + Math.random() * 600
-  // Мало времени: < 20 сек
-  if (remainingSecs !== null && remainingSecs < 20) return 700 + Math.random() * 1800
-  // Цейтнот: < 45 сек
-  if (remainingSecs !== null && remainingSecs < 45) return 1500 + Math.random() * 3500
+  // Цейтнот — приоритет скорости над имитацией
+  if (remainingSecs !== null && remainingSecs < 5)  return 80  + Math.random() * 120   // 80-200мс
+  if (remainingSecs !== null && remainingSecs < 10) return 150 + Math.random() * 200   // 150-350мс
+  if (remainingSecs !== null && remainingSecs < 20) return 250 + Math.random() * 350   // 250-600мс
+  if (remainingSecs !== null && remainingSecs < 40) return 600 + Math.random() * 900   // 0.6-1.5с
 
-  // Основной режим — % от оставшегося времени (как живой игрок)
+  // Основной режим — % от оставшегося времени
   if (remainingSecs !== null) {
-    const pct = 0.015 + Math.random() * 0.045   // 1.5% – 6% от остатка
+    const pct = 0.015 + Math.random() * 0.04   // 1.5% – 5.5%
     let ms = remainingSecs * pct * 1000
-    // 20% шанс: "глубокий расчёт" — удвоить время на ход
-    if (Math.random() < 0.20) ms *= 1.4 + Math.random() * 1.2
-    return Math.max(1200, Math.min(55000, ms))
+    if (Math.random() < 0.18) ms *= 1.3 + Math.random() * 1.0  // иногда думаем дольше
+    return Math.max(1000, Math.min(45000, ms))
   }
 
-  // Нет часов (без инкремента, оффлайн) — случайные профили
+  // Нет часов
   const r = Math.random()
-  if (r < 0.15) return 600  + Math.random() * 1200
-  if (r < 0.55) return 2500 + Math.random() * 5000
-  if (r < 0.80) return 6000 + Math.random() * 7000
-  return 12000 + Math.random() * 18000
+  if (r < 0.15) return 500  + Math.random() * 1000
+  if (r < 0.55) return 2000 + Math.random() * 4000
+  if (r < 0.80) return 5000 + Math.random() * 6000
+  return 10000 + Math.random() * 15000
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -236,22 +234,22 @@ async function initEngine() {
 
         const m1 = multiMoves[1]?.move || best
         const m2 = multiMoves[2]?.move
+        const m3 = multiMoves[3]?.move
         const s1 = multiMoves[1]?.score ?? 0
         const s2 = multiMoves[2]?.score ?? -9999
-        multiMoves = {}
-
-        // Иногда играем не лучший ход — снижает точность до человеческих ~80-85%
-        // 25% шанс взять 2-й ход если разница < 120cp (не грубый зевок)
-        // 8% шанс взять 3-й ход если разница < 60cp (почти равные ходы)
-        const m3 = multiMoves[3]?.move
         const s3 = multiMoves[3]?.score ?? -9999
         multiMoves = {}
 
+        // Не зеваем когда выигрываем (счёт > 200cp) или проигрываем (< -100cp)
+        // В равных/слегка лучших позициях — иногда играем не лучший ход
+        const winning = s1 > 200
+        const losing  = s1 < -100
         const rnd = Math.random()
-        if (m3 && Math.abs(s1 - s3) < 60  && rnd < 0.08) {
-          cb(m3)
-        } else if (m2 && Math.abs(s1 - s2) < 120 && rnd < 0.25) {
-          cb(m2)
+
+        if (!winning && !losing && m3 && Math.abs(s1 - s3) < 50 && rnd < 0.06) {
+          cb(m3)  // 3-й ход — только если позиция примерно равная
+        } else if (!winning && m2 && Math.abs(s1 - s2) < 80 && rnd < 0.20) {
+          cb(m2)  // 2-й ход — 20%, только не в выигранной позиции
         } else {
           cb(best === '(none)' || !best ? null : best)
         }
