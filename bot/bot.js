@@ -179,15 +179,17 @@ function startCommandListener(page) {
 // Задержка перед ходом — имитирует живого человека
 // ─────────────────────────────────────────────────────────────────────────────
 function humanDelay(remainingSecs, moveNum, isFast) {
+  // Время всегда приоритет — даже над fast streak и дебютом
+  if (remainingSecs !== null) {
+    if (remainingSecs < 3)  return 30  + Math.random() * 30
+    if (remainingSecs < 5)  return 80  + Math.random() * 120
+    if (remainingSecs < 10) return 130 + Math.random() * 170
+  }
+
   if (isFast) return 300 + Math.random() * 600
   if (moveNum <= OPENING_MOVES) return 800 + Math.random() * 2000
 
   if (remainingSecs !== null) {
-    // Экстремальный цейтнот — максимально быстро
-    if (remainingSecs < 3)  return 30  + Math.random() * 30
-    // Жёсткий цейтнот — фиксированно быстро
-    if (remainingSecs < 5)  return 80  + Math.random() * 120
-    if (remainingSecs < 10) return 130 + Math.random() * 170
 
     // Всё остальное — строго % от остатка времени
     // При 10 мин: 12–42 сек | При 1 мин: 1.2–4.2 сек | При 15 сек: 300мс–1 сек
