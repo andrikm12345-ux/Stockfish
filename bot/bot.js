@@ -183,6 +183,8 @@ function humanDelay(remainingSecs, moveNum, isFast) {
   if (moveNum <= OPENING_MOVES) return 800 + Math.random() * 2000
 
   if (remainingSecs !== null) {
+    // Экстремальный цейтнот — максимально быстро
+    if (remainingSecs < 3)  return 30  + Math.random() * 30
     // Жёсткий цейтнот — фиксированно быстро
     if (remainingSecs < 5)  return 80  + Math.random() * 120
     if (remainingSecs < 10) return 130 + Math.random() * 170
@@ -418,22 +420,22 @@ async function readChessComState(page) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Кликаем по клетке — с имитацией движения мыши как у человека
 // ─────────────────────────────────────────────────────────────────────────────
-async function clickSquare(page, square, boardBox, isFlipped) {
+async function clickSquare(page, square, boardBox, isFlipped, turbo = false) {
   const file = square.charCodeAt(0) - 97
   const rank = parseInt(square[1]) - 1
   const sz   = boardBox.width / 8
   const x    = boardBox.x + (isFlipped ? (7 - file) : file) * sz + sz / 2
   const y    = boardBox.y + (isFlipped ? rank : (7 - rank)) * sz + sz / 2
 
-  // 60% шанс: навести мышь на соседнее поле, потом на нужное (имитация взгляда)
-  if (Math.random() < 0.60) {
+  // В турбо-режиме (< 3 сек) пропускаем всё лишнее — только клик
+  if (!turbo && Math.random() < 0.60) {
     const dx = (Math.random() < 0.5 ? -1 : 1) * (0.6 + Math.random() * 0.9)
     const dy = (Math.random() < 0.5 ? -1 : 1) * (0.6 + Math.random() * 0.9)
     await page.mouse.move(x + dx * sz, y + dy * sz)
     await page.waitForTimeout(70 + Math.random() * 180)
   }
   await page.mouse.move(x, y)
-  await page.waitForTimeout(25 + Math.random() * 55)
+  await page.waitForTimeout(turbo ? 5 + Math.random() * 10 : 25 + Math.random() * 55)
   await page.mouse.click(x, y)
 }
 
@@ -645,9 +647,10 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
         const boardBox = await page.locator(boardSel).first().boundingBox()
         if (!boardBox) { console.log('Доска исчезла'); break }
 
-        await clickSquare(page, from, boardBox, flipped)
-        await page.waitForTimeout(60 + Math.random() * 80)
-        await clickSquare(page, to, boardBox, flipped)
+        const turbo = secs !== null && secs < 3
+        await clickSquare(page, from, boardBox, flipped, turbo)
+        await page.waitForTimeout(turbo ? 5 + Math.random() * 10 : 60 + Math.random() * 80)
+        await clickSquare(page, to, boardBox, flipped, turbo)
 
         if (promo) {
           await page.waitForTimeout(300)
