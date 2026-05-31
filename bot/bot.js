@@ -380,10 +380,14 @@ async function waitForGamePage(page, isLichess) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Открываем браузер:
 //   1. Пробуем CDP (Chrome уже запущен с портом 9222)
-//   2. Если нет — закрываем Chrome и перезапускаем его с портом (твой профиль сохранится)
+//   2. Если нет — запускаем ОТДЕЛЬНЫЙ Chrome бота с портом отладки.
+//      ВАЖНО: используем отдельную папку профиля (--user-data-dir), потому что
+//      Chrome 136+ запрещает порт отладки на стандартном профиле.
+//      Это настоящий Chrome (не Playwright) → Cloudflare пропускает вход.
+//      Твой обычный Chrome НЕ закрывается — у бота своё отдельное окно.
 // ─────────────────────────────────────────────────────────────────────────────
 async function openBrowser(siteUrl) {
-  // Пробуем подключиться к уже открытому Chrome
+  // Пробуем подключиться к уже открытому Chrome с портом
   try {
     const browser = await chromium.connectOverCDP('http://127.0.0.1:9222', { timeout: 2000 })
     const ctx  = browser.contexts()[0] || await browser.newContext()
@@ -391,9 +395,9 @@ async function openBrowser(siteUrl) {
     if (!page.url().includes('lichess') && !page.url().includes('chess.com')) {
       await page.goto(siteUrl)
     }
-    console.log('Подключился к Chrome (CDP)')
+    console.log('Подключился к Chrome бота (CDP)')
     return { browser, page }
-  } catch { /* CDP недоступен */ }
+  } catch { /* CDP недоступен — запускаем сами */ }
 
   // Находим Chrome
   const chromePaths = [
@@ -404,27 +408,37 @@ async function openBrowser(siteUrl) {
   const chromeExe = chromePaths.find(p => fs.existsSync(p))
   if (!chromeExe) throw new Error('Google Chrome не найден — установи Chrome.')
 
-  // Закрываем Chrome если открыт, запускаем с портом отладки
-  console.log('Перезапускаю Chrome с портом отладки (аккаунт сохранится)...')
-  try { require('child_process').execSync('taskkill /F /IM chrome.exe', { stdio: 'ignore' }) } catch {}
-  await new Promise(r => setTimeout(r, 2000))
+  // Отдельная папка профиля бота (логин в Lichess сохраняется здесь между запусками)
+  const debugProfile = path.join(__dirname, 'chrome-bot-profile')
+  const firstRun = !fs.existsSync(debugProfile)
 
+  console.log('Запускаю отдельное окно Chrome для бота...')
   spawn(chromeExe, [
     '--remote-debugging-port=9222',
-    '--remote-debugging-address=127.0.0.1',
-    '--start-maximized',
+    `--user-data-dir=${debugProfile}`,   // отдельный профиль → порт откроется (Chrome 136+)
     '--no-first-run',
+    '--no-default-browser-check',
+    '--start-maximized',
   ], { detached: true, stdio: 'ignore' }).unref()
 
-  // Ждём пока Chrome поднимет порт (до 15 попыток по 1 сек)
+  // Ждём пока Chrome поднимет порт (до 20 попыток по 1 сек)
   console.log('Жду запуска Chrome...')
   const http = require('http')
-  for (let i = 0; i < 15; i++) {
+  let portUp = false
+  for (let i = 0; i < 20; i++) {
     await new Promise(r => setTimeout(r, 1000))
-    const ok = await new Promise(r => {
-      http.get('http://127.0.0.1:9222/json/version', res => r(res.statusCode === 200)).on('error', () => r(false))
+    portUp = await new Promise(r => {
+      const req = http.get('http://127.0.0.1:9222/json/version', res => r(res.statusCode === 200))
+      req.on('error', () => r(false))
+      req.setTimeout(800, () => { req.destroy(); r(false) })
     })
-    if (ok) break
+    if (portUp) break
+  }
+  if (!portUp) throw new Error('Chrome не открыл порт 9222 — закрой все окна Chrome и попробуй снова.')
+
+  if (firstRun) {
+    console.log('\n*** ПЕРВЫЙ ЗАПУСК: войди в свой аккаунт Lichess в этом окне Chrome. ***')
+    console.log('*** Вход сохранится — в следующий раз будешь уже залогинен. ***\n')
   }
 
   // Подключаемся
