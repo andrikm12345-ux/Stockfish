@@ -376,20 +376,24 @@ async function waitForGamePage(page, isLichess) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Открываем браузер (или подключаемся к существующему через CDP)
+// Открываем браузер — сначала пробуем CDP (твой Chrome), иначе запускаем новый
 // ─────────────────────────────────────────────────────────────────────────────
 async function openBrowser(siteUrl) {
-  if (process.env.CDP === '1') {
-    console.log('Подключаюсь к существующему Chrome на порту 9222...')
-    const browser = await chromium.connectOverCDP('http://localhost:9222')
+  // Автоматически пробуем подключиться к уже открытому Chrome на порту 9222
+  try {
+    const browser = await chromium.connectOverCDP('http://localhost:9222', { timeout: 3000 })
     const ctx  = browser.contexts()[0] || await browser.newContext()
-    const page = ctx.pages()[0]       || await ctx.newPage()
+    const page = ctx.pages()[0]        || await ctx.newPage()
     const url  = page.url()
     if (!url.includes('lichess') && !url.includes('chess.com')) {
       await page.goto(siteUrl)
     }
+    console.log('Подключился к твоему Chrome (CDP)')
     return { browser, page }
+  } catch {
+    // Chrome с портом 9222 не найден — запускаем свой
   }
+  console.log('Запускаю новый Chrome...')
   const browser = await chromium.launch({ channel: 'chrome', headless: false, args: ['--start-maximized'] })
   const page    = await browser.newPage()
   await page.goto(siteUrl)
