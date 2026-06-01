@@ -41,6 +41,7 @@ let isBulletGame = false // текущая игра — пуля?
 let lastEngineScore = 0  // последняя оценка движка (cp)
 let PAUSED = false       // пауза: бот не делает ходы
 let lastPauseToggle = 0  // защита от двойного срабатывания p
+let RESTART = false      // сигнал перезапуска игрового цикла
 
 // Количество ходов которые считаются дебютом (быстрая игра)
 const OPENING_MOVES = 14
@@ -166,11 +167,15 @@ function startCommandListener(page) {
       lastPauseToggle = now
       PAUSED = !PAUSED
       console.log(PAUSED ? '\n⏸  Бот на паузе — ходы не делает' : '\n▶  Бот возобновлён')
+    } else if (cmd === 'r') {
+      RESTART = true
+      PAUSED  = false
+      console.log('\n→ Перезапуск игрового цикла...')
     } else if (cmd === 'g' && val) {
       console.log(`\n→ Перехожу на: ${val}`)
       page.goto(val).catch(() => {})
     } else if (line.trim()) {
-      console.log('Команды: d <глубина>   s <скилл 0-20>   a (авто-глубина)   p (пауза/продолжить)   g <ссылка на игру>')
+      console.log('Команды: d <глубина>   s <скилл 0-20>   a (авто-глубина)   p (пауза/продолжить)   r (рестарт)   g <ссылка на игру>')
     }
   })
 }
@@ -588,6 +593,7 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
       // Игровой цикл
       while (true) {
         await page.waitForTimeout(250)
+        if (RESTART) { RESTART = false; console.log('↺ Цикл перезапущен'); break }
         if (isLichess && !isGameUrl(page.url())) { console.log('Игра окончена (редирект).'); break }
 
         let state
