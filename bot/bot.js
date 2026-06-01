@@ -437,7 +437,9 @@ async function clickSquare(page, square, boardBox, isFlipped, turbo = false) {
   if (!turbo && Math.random() < 0.60) {
     const dx = (Math.random() < 0.5 ? -1 : 1) * (0.6 + Math.random() * 0.9)
     const dy = (Math.random() < 0.5 ? -1 : 1) * (0.6 + Math.random() * 0.9)
-    await page.mouse.move(x + dx * sz, y + dy * sz)
+    const hoverX = Math.max(boardBox.x + sz * 0.1, Math.min(boardBox.x + boardBox.width  - sz * 0.1, x + dx * sz))
+    const hoverY = Math.max(boardBox.y + sz * 0.1, Math.min(boardBox.y + boardBox.height - sz * 0.1, y + dy * sz))
+    await page.mouse.move(hoverX, hoverY)
     await page.waitForTimeout(70 + Math.random() * 180)
   }
   await page.mouse.move(x, y)
