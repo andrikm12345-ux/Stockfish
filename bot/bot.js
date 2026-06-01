@@ -199,7 +199,7 @@ function startCommandListener(page) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Задержка перед ходом — имитирует живого человека
 // ─────────────────────────────────────────────────────────────────────────────
-function humanDelay(remainingSecs, moveNum, isFast) {
+function humanDelay(remainingSecs, moveNum, isFast, timeDelta = 0) {
   // Цейтнот — всегда приоритет независимо от режима
   if (remainingSecs !== null) {
     if (remainingSecs < 6)  return 20  + Math.random() * 20
@@ -213,7 +213,10 @@ function humanDelay(remainingSecs, moveNum, isFast) {
     if (remainingSecs !== null) {
       // 0.8–2.3% → при 40с: 320–920мс | при 20с: 160–460мс
       let ms = remainingSecs * (0.008 + Math.random() * 0.015) * 1000
-      if (Math.random() < 0.10) ms *= 1.5 + Math.random() * 1.0  // иногда думает дольше ×1.5–2.5
+      // Запас 15+ сек: расслабляемся — больше шанс подумать дольше
+      const thinkChance = timeDelta >= 15 ? 0.25 : 0.10
+      const thinkMult   = timeDelta >= 15 ? (2.0 + Math.random() * 2.0) : (1.5 + Math.random() * 1.0)
+      if (Math.random() < thinkChance) ms *= thinkMult
       return Math.max(120, Math.min(2000, ms))
     }
   }
@@ -712,7 +715,7 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
           ? (200 + Math.random() * 400)
           : pressingOpp
             ? (150 + Math.random() * 250)
-            : humanDelay(effSecs, moveNum, isFast)
+            : humanDelay(effSecs, moveNum, isFast, timeDelta)
 
         const effTag = (secs !== null && Math.abs(effSecs - secs) >= 2) ? ` (эфф ${Math.round(effSecs)}с)` : ''
         const timeInfo = secs !== null
