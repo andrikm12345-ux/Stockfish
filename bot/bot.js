@@ -235,6 +235,24 @@ async function readClockSecs(page) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Оба часа: наше и противника
+// ─────────────────────────────────────────────────────────────────────────────
+async function readBothClocks(page) {
+  return page.evaluate(() => {
+    function parse(el) {
+      if (!el) return null
+      const text = el.textContent.trim().replace(/[^\d:.]/g, '')
+      const parts = text.split(':')
+      if (parts.length < 2) return null
+      return parseFloat(parts[0]) * 60 + parseFloat(parts[1])
+    }
+    const ourEl = document.querySelector('.rclock-bottom .time, .rclock.rclock-bottom time, .clock__time')
+    const oppEl = document.querySelector('.rclock-top .time, .rclock.rclock-top time')
+    return { our: parse(ourEl), opp: parse(oppEl) }
+  }).catch(() => ({ our: null, opp: null }))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Читаем контроль времени из заголовка игры (например "5+0", "3+2")
 // Надёжнее чем читать остаток на часах — не зависит от момента входа в партию
 // ─────────────────────────────────────────────────────────────────────────────
@@ -640,13 +658,25 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
           from = uciMove.slice(0, 2); to = uciMove.slice(2, 4); promo = uciMove[4] || null
         }
 
-        const secs  = isLichess ? await readClockSecs(page) : null
-        const delay = book ? (200 + Math.random() * 400) : humanDelay(secs, moveNum, isFast)
-        console.log(`${from}→${to} (${ms ? `${ms}мс думал, ` : ''}${Math.round(delay)}мс пауза${secs !== null ? `, ${Math.round(secs)}с осталось` : ''})`)
+        const { our: secs, opp: oppSecs } = isLichess ? await readBothClocks(page) : { our: null, opp: null }
+        const timeDelta   = (secs !== null && oppSecs !== null) ? secs - oppSecs : 0
+        // Мы впереди по времени, противник в цейтноте — давим, но не машинно
+        const pressingOpp = oppSecs !== null && oppSecs < 5 && timeDelta > 3
 
-        // Иногда флагуем в пуле — как живой человек в цейтноте
-        if (!book && isBulletGame && secs !== null && secs < 8 && lastEngineScore < 200 && Math.random() < 0.07) {
-          console.log(`(флаг — ${Math.round(secs)}с → намеренная просрочка)`)
+        const delay = book
+          ? (200 + Math.random() * 400)
+          : pressingOpp
+            ? (100 + Math.random() * 200)
+            : humanDelay(secs, moveNum, isFast)
+
+        const timeInfo = secs !== null
+          ? `, ${Math.round(secs)}с${oppSecs !== null ? ` | opp ${Math.round(oppSecs)}с` : ''}`
+          : ''
+        console.log(`${from}→${to} (${ms ? `${ms}мс думал, ` : ''}${Math.round(delay)}мс пауза${timeInfo})`)
+
+        // Умное флагование: только когда проигрываем по времени И позиция не выигрышная
+        if (!book && isBulletGame && secs !== null && secs < 10 && timeDelta < -3 && lastEngineScore < 100 && Math.random() < 0.08) {
+          console.log(`(флаг — наше ${Math.round(secs)}с | opp ${Math.round(oppSecs ?? 0)}с | Δ${Math.round(timeDelta)}с)`)
           await page.waitForTimeout((secs + 2) * 1000)
           continue
         }
@@ -656,9 +686,10 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
         const boardBox = await page.locator(boardSel).first().boundingBox()
         if (!boardBox) { console.log('Доска исчезла'); break }
 
-        const turbo = secs !== null && secs < 6
+        // Турбо: наше < 6с, ИЛИ сильно отстаём по времени
+        const turbo = secs !== null && (secs < 6 || timeDelta < -5)
         await clickSquare(page, from, boardBox, flipped, turbo)
-        await page.waitForTimeout(turbo ? 5 + Math.random() * 10 : 60 + Math.random() * 80)
+        await page.waitForTimeout(turbo ? 5 + Math.random() * 10 : pressingOpp ? 20 + Math.random() * 30 : 60 + Math.random() * 80)
         await clickSquare(page, to, boardBox, flipped, turbo)
 
         if (promo) {
