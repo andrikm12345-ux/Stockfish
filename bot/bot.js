@@ -342,10 +342,10 @@ async function initEngine() {
         const rnd = Math.random()
         lastEngineScore = s1
 
-        if (!winning && !losing && m3 && Math.abs(s1 - s3) < 50 && rnd < 0.06) {
-          cb(m3)  // 3-й ход — только если позиция примерно равная
-        } else if (!winning && m2 && Math.abs(s1 - s2) < 80 && rnd < 0.20) {
-          cb(m2)  // 2-й ход — 20%, только не в выигранной позиции
+        if (!winning && !losing && m3 && Math.abs(s1 - s3) < 120 && rnd < 0.06) {
+          cb(m3)  // 3-й ход — порог расширен 50→120
+        } else if (!winning && m2 && Math.abs(s1 - s2) < 200 && rnd < 0.20) {
+          cb(m2)  // 2-й ход — порог расширен 80→200
         } else {
           cb(best === '(none)' || !best ? null : best)
         }
