@@ -654,11 +654,29 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
         await clickSquare(page, to, boardBox, flipped, turbo)
 
         if (promo) {
-          await page.waitForTimeout(300)
-          const qBtn = isLichess
-            ? page.locator('.promotion-choice piece.queen').first()
-            : page.locator('.promotion-piece[data-piece="q"]').first()
-          if (await qBtn.isVisible({ timeout: 1000 }).catch(() => false)) await qBtn.click()
+          await page.waitForTimeout(400)
+          const lichessSelectors = [
+            '.promotion-choice piece.queen',
+            '.promotion-choice piece:first-child',
+            'promotion-choice piece.queen',
+            'cg-container .promotion piece.queen',
+          ]
+          const chessSelectors = [
+            '.promotion-piece[data-piece="q"]',
+            '.promotion-piece:first-child',
+            '[data-promotion="q"]',
+          ]
+          const selectors = isLichess ? lichessSelectors : chessSelectors
+          let clicked = false
+          for (const sel of selectors) {
+            const btn = page.locator(sel).first()
+            if (await btn.isVisible({ timeout: 600 }).catch(() => false)) {
+              await btn.click()
+              clicked = true
+              break
+            }
+          }
+          if (!clicked) console.log('(превращение: кнопка не найдена — кликни вручную)')
         }
       }
       await page.waitForTimeout(1500)
