@@ -175,16 +175,15 @@ function startCommandListener(page) {
       PAUSED  = false
       console.log('\n→ Перезапуск игрового цикла...')
     } else if (cmd === 'n') {
-      savedDepth     = DEPTH
-      savedSkill     = SKILL
-      savedAutoDepth = AUTO_DEPTH
+      savedDepth = DEPTH
+      savedSkill = SKILL
       DEPTH = 1; SKILL = 1; AUTO_DEPTH = false
       console.log(`\n→ Режим тупого: d1 s1 (было d${savedDepth} s${savedSkill}) | b — вернуть`)
     } else if (cmd === 'b') {
       if (savedDepth !== null) {
-        DEPTH = savedDepth; SKILL = savedSkill; AUTO_DEPTH = savedAutoDepth
-        savedDepth = savedSkill = savedAutoDepth = null
-        console.log(`\n→ Восстановлено: d${DEPTH} s${SKILL}${AUTO_DEPTH ? ' [авто]' : ''}`)
+        DEPTH = savedDepth; SKILL = savedSkill; AUTO_DEPTH = false
+        savedDepth = savedSkill = null
+        console.log(`\n→ Восстановлено: d${DEPTH} s${SKILL}`)
       } else {
         console.log('\n→ Нечего восстанавливать')
       }
