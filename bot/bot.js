@@ -42,7 +42,9 @@ let gameCategory = 'blitz' // 'bullet' | 'blitz' | 'rapid'
 let lastEngineScore = 0  // последняя оценка движка (cp)
 let PAUSED = false       // пауза: бот не делает ходы
 let lastPauseToggle = 0  // защита от двойного срабатывания p
-let RESTART = false      // сигнал перезапуска игрового цикла
+let savedDepth = null  // сохранённые значения до режима тупого
+let savedSkill = null
+let savedAutoDepth = null
 
 // Количество ходов которые считаются дебютом (быстрая игра)
 const OPENING_MOVES = 10
@@ -172,11 +174,25 @@ function startCommandListener(page) {
       RESTART = true
       PAUSED  = false
       console.log('\n→ Перезапуск игрового цикла...')
+    } else if (cmd === 'n') {
+      savedDepth     = DEPTH
+      savedSkill     = SKILL
+      savedAutoDepth = AUTO_DEPTH
+      DEPTH = 1; SKILL = 1; AUTO_DEPTH = false
+      console.log(`\n→ Режим тупого: d1 s1 (было d${savedDepth} s${savedSkill}) | b — вернуть`)
+    } else if (cmd === 'b') {
+      if (savedDepth !== null) {
+        DEPTH = savedDepth; SKILL = savedSkill; AUTO_DEPTH = savedAutoDepth
+        savedDepth = savedSkill = savedAutoDepth = null
+        console.log(`\n→ Восстановлено: d${DEPTH} s${SKILL}${AUTO_DEPTH ? ' [авто]' : ''}`)
+      } else {
+        console.log('\n→ Нечего восстанавливать')
+      }
     } else if (cmd === 'g' && val) {
       console.log(`\n→ Перехожу на: ${val}`)
       page.goto(val).catch(() => {})
     } else if (line.trim()) {
-      console.log('Команды: d <глубина>   s <скилл 0-20>   a (авто-глубина)   p (пауза/продолжить)   r (рестарт)   g <ссылка на игру>')
+      console.log('Команды: d <глубина>   s <скилл 0-20>   a (авто-глубина)   p (пауза/продолжить)   r (рестарт)   n (тупой режим)   b (вернуть)   g <ссылка>')
     }
   })
 }
