@@ -42,9 +42,9 @@ let gameCategory = 'blitz' // 'bullet' | 'blitz' | 'rapid'
 let lastEngineScore = 0  // последняя оценка движка (cp)
 let PAUSED = false       // пауза: бот не делает ходы
 let lastPauseToggle = 0  // защита от двойного срабатывания p
+let RESTART = false    // сигнал перезапуска игрового цикла
 let savedDepth = null  // сохранённые значения до режима тупого
 let savedSkill = null
-let savedAutoDepth = null
 
 // Количество ходов которые считаются дебютом (быстрая игра)
 const OPENING_MOVES = 10
