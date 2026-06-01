@@ -190,17 +190,24 @@ function humanDelay(remainingSecs, moveNum, isFast) {
     if (remainingSecs < 10) return 130 + Math.random() * 170
   }
 
-  if (isFast) return 300 + Math.random() * 600
-  if (moveNum <= OPENING_MOVES) return 800 + Math.random() * 2000
+  if (isFast) return isBulletGame
+    ? (80  + Math.random() * 170)   // пуля: быстрая серия 80–250мс
+    : (300 + Math.random() * 600)   // блиц/рапид: 300–900мс
+
+  if (moveNum <= OPENING_MOVES) return isBulletGame
+    ? (250 + Math.random() * 450)   // пуля: дебют 250–700мс (не 800–2800!)
+    : (800 + Math.random() * 2000)
 
   if (remainingSecs !== null) {
-
-    // Всё остальное — строго % от остатка времени
-    // При 10 мин: 12–42 сек | При 1 мин: 1.2–4.2 сек | При 15 сек: 300мс–1 сек
-    const pct = 0.02 + Math.random() * 0.05
+    // Пуля: 0.8–2.3% от остатка  →  при 40с = 320–920мс, при 20с = 160–460мс
+    // Блиц/рапид: 2–7%            →  при 10мин = 12–42с, при 1мин = 1.2–4.2с
+    const pct = isBulletGame
+      ? (0.008 + Math.random() * 0.015)
+      : (0.02  + Math.random() * 0.05)
     let ms = remainingSecs * pct * 1000
-    if (Math.random() < 0.18) ms *= 1.3 + Math.random() * 1.0  // иногда думает дольше
-    return Math.max(300, Math.min(45000, ms))
+    // "Думает дольше" — только в блице/рапиде, в пуле нет времени
+    if (!isBulletGame && Math.random() < 0.18) ms *= 1.3 + Math.random() * 1.0
+    return Math.max(isBulletGame ? 120 : 300, Math.min(45000, ms))
   }
 
   // Нет часов — случайные профили
@@ -666,7 +673,7 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
         // Главная пауза И турбо опираются на ОДНО это число — без противоречий.
         let effSecs = secs
         if (secs !== null && isBulletGame && timeDelta < 0) {
-          effSecs = Math.max(4, secs + timeDelta * 0.5)
+          effSecs = Math.max(1, Math.min(secs, secs + timeDelta * 0.5))
         }
 
         // Соперник в глубоком цейтноте, а мы впереди — держим темп, давим на часы
