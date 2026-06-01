@@ -44,7 +44,7 @@ let lastPauseToggle = 0  // защита от двойного срабатыв�
 let RESTART = false      // сигнал перезапуска игрового цикла
 
 // Количество ходов которые считаются дебютом (быстрая игра)
-const OPENING_MOVES = 14
+const OPENING_MOVES = 10
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Книга дебютов — 37 дебютов с вариациями (SAN, ходы обеих сторон)
@@ -269,7 +269,7 @@ async function detectGameType(page) {
   let totalSecs = await readTimeControlSecs(page)
   const source  = totalSecs !== null ? 'заголовок' : 'часы'
   if (totalSecs === null) totalSecs = await readClockSecs(page)
-  if (totalSecs === null) return
+  if (totalSecs === null) { isBulletGame = false; return }
 
   isBulletGame = totalSecs < 180
   if (!AUTO_DEPTH) {
@@ -344,7 +344,7 @@ async function initEngine() {
 
         if (!winning && !losing && m3 && Math.abs(s1 - s3) < 120 && rnd < 0.06) {
           cb(m3)  // 3-й ход — порог расширен 50→120
-        } else if (!winning && m2 && Math.abs(s1 - s2) < 200 && rnd < 0.20) {
+        } else if (!winning && !losing && m2 && Math.abs(s1 - s2) < 200 && rnd < 0.20) {
           cb(m2)  // 2-й ход — порог расширен 80→200
         } else {
           cb(best === '(none)' || !best ? null : best)
