@@ -693,12 +693,14 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
         await clickSquare(page, to, boardBox, flipped, turbo)
 
         if (promo) {
-          await page.waitForTimeout(400)
+          await page.waitForTimeout(500)
           const lichessSelectors = [
             '.promotion-choice piece.queen',
             '.promotion-choice piece:first-child',
             'promotion-choice piece.queen',
             'cg-container .promotion piece.queen',
+            '.cg-wrap promotion-choice piece.queen',
+            'cg-board promotion-choice piece',
           ]
           const chessSelectors = [
             '.promotion-piece[data-piece="q"]',
@@ -714,6 +716,14 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
               clicked = true
               break
             }
+          }
+          // Запасной вариант: кликнуть по клетке назначения на доске
+          // На Lichess ферзь всегда появляется на клетке куда пришла пешка
+          if (!clicked && isLichess && boardBox) {
+            await page.waitForTimeout(200)
+            await clickSquare(page, to, boardBox, flipped, true)
+            clicked = true
+            console.log('(превращение: клик по доске)')
           }
           if (!clicked) console.log('(превращение: кнопка не найдена — кликни вручную)')
         }
