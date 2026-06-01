@@ -197,8 +197,9 @@ function humanDelay(remainingSecs, moveNum, isFast) {
     if (moveNum <= OPENING_MOVES) return 250 + Math.random() * 450 // 250–700мс
     if (remainingSecs !== null) {
       // 0.8–2.3% → при 40с: 320–920мс | при 20с: 160–460мс
-      const ms = remainingSecs * (0.008 + Math.random() * 0.015) * 1000
-      return Math.max(120, Math.min(3000, ms))
+      let ms = remainingSecs * (0.008 + Math.random() * 0.015) * 1000
+      if (Math.random() < 0.10) ms *= 1.5 + Math.random() * 1.0  // иногда думает дольше ×1.5–2.5
+      return Math.max(120, Math.min(2000, ms))
     }
   }
 
