@@ -723,45 +723,10 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
         await page.waitForTimeout(turbo ? 5 + Math.random() * 10 : pressingOpp ? 20 + Math.random() * 30 : 60 + Math.random() * 80)
         await clickSquare(page, to, boardBox, flipped, turbo)
 
-        if (promo) {
-          // В цейтноте — сразу кликаем по клетке (ферзь всегда там), без перебора селекторов
-          if (turbo && isLichess && boardBox) {
-            await page.waitForTimeout(80 + Math.random() * 80)
-            await clickSquare(page, to, boardBox, flipped, true)
-            console.log('(превращение: турбо-клик)')
-          } else {
-            await page.waitForTimeout(300)
-            const lichessSelectors = [
-              '.promotion-choice piece.queen',
-              '.promotion-choice piece:first-child',
-              'promotion-choice piece.queen',
-              'cg-container .promotion piece.queen',
-              '.cg-wrap promotion-choice piece.queen',
-              'cg-board promotion-choice piece',
-            ]
-            const chessSelectors = [
-              '.promotion-piece[data-piece="q"]',
-              '.promotion-piece:first-child',
-              '[data-promotion="q"]',
-            ]
-            const selectors = isLichess ? lichessSelectors : chessSelectors
-            let clicked = false
-            for (const sel of selectors) {
-              const btn = page.locator(sel).first()
-              if (await btn.isVisible({ timeout: 300 }).catch(() => false)) {
-                await btn.click()
-                clicked = true
-                break
-              }
-            }
-            if (!clicked && isLichess && boardBox) {
-              await page.waitForTimeout(100)
-              await clickSquare(page, to, boardBox, flipped, true)
-              clicked = true
-              console.log('(превращение: клик по доске)')
-            }
-            if (!clicked) console.log('(превращение: кнопка не найдена — кликни вручную)')
-          }
+        if (promo && boardBox) {
+          await page.waitForTimeout(turbo ? 60 + Math.random() * 60 : 250 + Math.random() * 150)
+          await clickSquare(page, to, boardBox, flipped, true)
+          console.log('(превращение: ферзь)')
         }
       }
       await page.waitForTimeout(1500)
