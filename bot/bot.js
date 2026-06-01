@@ -38,6 +38,7 @@ let SKILL = 20
 const SITE = (process.env.SITE || 'lichess').toLowerCase()
 let AUTO_DEPTH = true    // автоподбор глубины по контролю времени
 let isBulletGame = false // текущая игра — пуля?
+let gameCategory = 'blitz' // 'bullet' | 'blitz' | 'rapid'
 let lastEngineScore = 0  // последняя оценка движка (cp)
 let PAUSED = false       // пауза: бот не делает ходы
 let lastPauseToggle = 0  // защита от двойного срабатывания p
@@ -184,30 +185,43 @@ function startCommandListener(page) {
 // Задержка перед ходом — имитирует живого человека
 // ─────────────────────────────────────────────────────────────────────────────
 function humanDelay(remainingSecs, moveNum, isFast) {
-  // Время всегда приоритет — даже над fast streak и дебютом
+  // Цейтнот — всегда приоритет независимо от режима
   if (remainingSecs !== null) {
     if (remainingSecs < 6)  return 20  + Math.random() * 20
     if (remainingSecs < 10) return 130 + Math.random() * 170
   }
 
-  if (isFast) return isBulletGame
-    ? (80  + Math.random() * 170)   // пуля: быстрая серия 80–250мс
-    : (300 + Math.random() * 600)   // блиц/рапид: 300–900мс
+  // Профили по типу игры
+  if (gameCategory === 'bullet') {
+    if (isFast)              return 80  + Math.random() * 170   // 80–250мс
+    if (moveNum <= OPENING_MOVES) return 250 + Math.random() * 450 // 250–700мс
+    if (remainingSecs !== null) {
+      // 0.8–2.3% → при 40с: 320–920мс | при 20с: 160–460мс
+      const ms = remainingSecs * (0.008 + Math.random() * 0.015) * 1000
+      return Math.max(120, Math.min(3000, ms))
+    }
+  }
 
-  if (moveNum <= OPENING_MOVES) return isBulletGame
-    ? (250 + Math.random() * 450)   // пуля: дебют 250–700мс (не 800–2800!)
-    : (800 + Math.random() * 2000)
+  if (gameCategory === 'blitz') {
+    if (isFast)              return 200 + Math.random() * 400   // 200–600мс
+    if (moveNum <= OPENING_MOVES) return 600 + Math.random() * 1200 // 600–1800мс
+    if (remainingSecs !== null) {
+      // 1–3.5% → при 300с: 3–10.5с | при 100с: 1–3.5с | макс 15с
+      let ms = remainingSecs * (0.01 + Math.random() * 0.025) * 1000
+      if (Math.random() < 0.12) ms *= 1.2 + Math.random() * 0.5  // иногда думает дольше ×1.2–1.7
+      return Math.max(300, Math.min(15000, ms))
+    }
+  }
 
-  if (remainingSecs !== null) {
-    // Пуля: 0.8–2.3% от остатка  →  при 40с = 320–920мс, при 20с = 160–460мс
-    // Блиц/рапид: 2–7%            →  при 10мин = 12–42с, при 1мин = 1.2–4.2с
-    const pct = isBulletGame
-      ? (0.008 + Math.random() * 0.015)
-      : (0.02  + Math.random() * 0.05)
-    let ms = remainingSecs * pct * 1000
-    // "Думает дольше" — только в блице/рапиде, в пуле нет времени
-    if (!isBulletGame && Math.random() < 0.18) ms *= 1.3 + Math.random() * 1.0
-    return Math.max(isBulletGame ? 120 : 300, Math.min(45000, ms))
+  if (gameCategory === 'rapid') {
+    if (isFast)              return 300 + Math.random() * 600   // 300–900мс
+    if (moveNum <= OPENING_MOVES) return 800 + Math.random() * 2000 // 800–2800мс
+    if (remainingSecs !== null) {
+      // 1.5–4.5% → при 600с: 9–27с | при 200с: 3–9с | макс 25с
+      let ms = remainingSecs * (0.015 + Math.random() * 0.03) * 1000
+      if (Math.random() < 0.18) ms *= 1.3 + Math.random() * 0.7  // думает дольше ×1.3–2.0
+      return Math.max(300, Math.min(25000, ms))
+    }
   }
 
   // Нет часов — случайные профили
@@ -294,19 +308,18 @@ async function detectGameType(page) {
   let totalSecs = await readTimeControlSecs(page)
   const source  = totalSecs !== null ? 'заголовок' : 'часы'
   if (totalSecs === null) totalSecs = await readClockSecs(page)
-  if (totalSecs === null) { isBulletGame = false; return }
+  if (totalSecs === null) { isBulletGame = false; gameCategory = 'blitz'; return }
 
-  isBulletGame = totalSecs < 180
+  isBulletGame  = totalSecs < 180
+  gameCategory  = totalSecs < 180 ? 'bullet' : totalSecs < 600 ? 'blitz' : 'rapid'
   if (!AUTO_DEPTH) {
-    const label = totalSecs < 180 ? 'пуля' : totalSecs < 600 ? 'блиц' : 'рапид'
-    console.log(`Контроль: ${Math.round(totalSecs)}с [${label}] (${source}) | Depth:${DEPTH} (вручную)`)
+    console.log(`Контроль: ${Math.round(totalSecs)}с [${gameCategory}] (${source}) | Depth:${DEPTH} (вручную)`)
     return
   }
   if      (totalSecs < 180) DEPTH = 5
   else if (totalSecs < 600) DEPTH = 8
   else                      DEPTH = 12
-  const label = totalSecs < 180 ? 'пуля' : totalSecs < 600 ? 'блиц' : 'рапид'
-  console.log(`Авто-глубина: ${Math.round(totalSecs)}с [${label}] (${source}) → depth ${DEPTH}`)
+  console.log(`Авто-глубина: ${Math.round(totalSecs)}с [${gameCategory}] (${source}) → depth ${DEPTH}`)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
