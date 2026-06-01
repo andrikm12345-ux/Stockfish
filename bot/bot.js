@@ -661,7 +661,7 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
         const { our: secs, opp: oppSecs } = isLichess ? await readBothClocks(page) : { our: null, opp: null }
         const timeDelta   = (secs !== null && oppSecs !== null) ? secs - oppSecs : 0
         // Мы впереди по времени, противник в цейтноте — давим, но не машинно
-        const pressingOpp = oppSecs !== null && oppSecs < 5 && timeDelta > 3
+        const pressingOpp = isBulletGame && oppSecs !== null && oppSecs < 5 && timeDelta > 3
 
         const delay = book
           ? (200 + Math.random() * 400)
@@ -686,8 +686,8 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
         const boardBox = await page.locator(boardSel).first().boundingBox()
         if (!boardBox) { console.log('Доска исчезла'); break }
 
-        // Турбо: наше < 6с, ИЛИ сильно отстаём по времени
-        const turbo = secs !== null && (secs < 6 || timeDelta < -5)
+        // Турбо: наше < 6с, ИЛИ в пуле сильно отстаём по времени
+        const turbo = secs !== null && (secs < 6 || (isBulletGame && timeDelta < -5))
         await clickSquare(page, from, boardBox, flipped, turbo)
         await page.waitForTimeout(turbo ? 5 + Math.random() * 10 : pressingOpp ? 20 + Math.random() * 30 : 60 + Math.random() * 80)
         await clickSquare(page, to, boardBox, flipped, turbo)
