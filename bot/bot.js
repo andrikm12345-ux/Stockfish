@@ -659,18 +659,28 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
         }
 
         const { our: secs, opp: oppSecs } = isLichess ? await readBothClocks(page) : { our: null, opp: null }
-        const timeDelta   = (secs !== null && oppSecs !== null) ? secs - oppSecs : 0
-        // Мы впереди по времени, противник в цейтноте — давим, но не машинно
-        const pressingOpp = isBulletGame && oppSecs !== null && oppSecs < 5 && timeDelta > 3
+        const timeDelta = (secs !== null && oppSecs !== null) ? secs - oppSecs : 0
+
+        // Эффективное время — насколько реально поджимает. В пуле, если отстаём
+        // по времени, считаем как будто у нас меньше (половина отставания, пол 4с).
+        // Главная пауза И турбо опираются на ОДНО это число — без противоречий.
+        let effSecs = secs
+        if (secs !== null && isBulletGame && timeDelta < 0) {
+          effSecs = Math.max(4, secs + timeDelta * 0.5)
+        }
+
+        // Соперник в глубоком цейтноте, а мы впереди — держим темп, давим на часы
+        const pressingOpp = isBulletGame && oppSecs !== null && oppSecs < 6 && timeDelta > 4
 
         const delay = book
           ? (200 + Math.random() * 400)
           : pressingOpp
-            ? (100 + Math.random() * 200)
-            : humanDelay(secs, moveNum, isFast)
+            ? (150 + Math.random() * 250)
+            : humanDelay(effSecs, moveNum, isFast)
 
+        const effTag = (secs !== null && Math.abs(effSecs - secs) >= 2) ? ` (эфф ${Math.round(effSecs)}с)` : ''
         const timeInfo = secs !== null
-          ? `, ${Math.round(secs)}с${oppSecs !== null ? ` | opp ${Math.round(oppSecs)}с` : ''}`
+          ? `, ${Math.round(secs)}с${effTag}${oppSecs !== null ? ` | opp ${Math.round(oppSecs)}с` : ''}`
           : ''
         console.log(`${from}→${to} (${ms ? `${ms}мс думал, ` : ''}${Math.round(delay)}мс пауза${timeInfo})`)
 
@@ -686,8 +696,8 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
         const boardBox = await page.locator(boardSel).first().boundingBox()
         if (!boardBox) { console.log('Доска исчезла'); break }
 
-        // Турбо: наше < 6с, ИЛИ в пуле сильно отстаём по времени
-        const turbo = secs !== null && (secs < 6 || (isBulletGame && timeDelta < -5))
+        // Турбо: эффективное время < 6с (абсолютный цейтнот ИЛИ сильное отставание в пуле)
+        const turbo = effSecs !== null && effSecs < 6
         await clickSquare(page, from, boardBox, flipped, turbo)
         await page.waitForTimeout(turbo ? 5 + Math.random() * 10 : pressingOpp ? 20 + Math.random() * 30 : 60 + Math.random() * 80)
         await clickSquare(page, to, boardBox, flipped, turbo)
