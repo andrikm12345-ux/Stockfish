@@ -724,39 +724,44 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
         await clickSquare(page, to, boardBox, flipped, turbo)
 
         if (promo) {
-          await page.waitForTimeout(500)
-          const lichessSelectors = [
-            '.promotion-choice piece.queen',
-            '.promotion-choice piece:first-child',
-            'promotion-choice piece.queen',
-            'cg-container .promotion piece.queen',
-            '.cg-wrap promotion-choice piece.queen',
-            'cg-board promotion-choice piece',
-          ]
-          const chessSelectors = [
-            '.promotion-piece[data-piece="q"]',
-            '.promotion-piece:first-child',
-            '[data-promotion="q"]',
-          ]
-          const selectors = isLichess ? lichessSelectors : chessSelectors
-          let clicked = false
-          for (const sel of selectors) {
-            const btn = page.locator(sel).first()
-            if (await btn.isVisible({ timeout: 600 }).catch(() => false)) {
-              await btn.click()
-              clicked = true
-              break
-            }
-          }
-          // Запасной вариант: кликнуть по клетке назначения на доске
-          // На Lichess ферзь всегда появляется на клетке куда пришла пешка
-          if (!clicked && isLichess && boardBox) {
-            await page.waitForTimeout(200)
+          // В цейтноте — сразу кликаем по клетке (ферзь всегда там), без перебора селекторов
+          if (turbo && isLichess && boardBox) {
+            await page.waitForTimeout(80 + Math.random() * 80)
             await clickSquare(page, to, boardBox, flipped, true)
-            clicked = true
-            console.log('(превращение: клик по доске)')
+            console.log('(превращение: турбо-клик)')
+          } else {
+            await page.waitForTimeout(300)
+            const lichessSelectors = [
+              '.promotion-choice piece.queen',
+              '.promotion-choice piece:first-child',
+              'promotion-choice piece.queen',
+              'cg-container .promotion piece.queen',
+              '.cg-wrap promotion-choice piece.queen',
+              'cg-board promotion-choice piece',
+            ]
+            const chessSelectors = [
+              '.promotion-piece[data-piece="q"]',
+              '.promotion-piece:first-child',
+              '[data-promotion="q"]',
+            ]
+            const selectors = isLichess ? lichessSelectors : chessSelectors
+            let clicked = false
+            for (const sel of selectors) {
+              const btn = page.locator(sel).first()
+              if (await btn.isVisible({ timeout: 300 }).catch(() => false)) {
+                await btn.click()
+                clicked = true
+                break
+              }
+            }
+            if (!clicked && isLichess && boardBox) {
+              await page.waitForTimeout(100)
+              await clickSquare(page, to, boardBox, flipped, true)
+              clicked = true
+              console.log('(превращение: клик по доске)')
+            }
+            if (!clicked) console.log('(превращение: кнопка не найдена — кликни вручную)')
           }
-          if (!clicked) console.log('(превращение: кнопка не найдена — кликни вручную)')
         }
       }
       await page.waitForTimeout(1500)
