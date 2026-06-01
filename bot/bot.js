@@ -672,6 +672,13 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
         if (chess.turn() !== myColor) continue
         if (chess.isGameOver()) break
 
+        // Гипер-турбо: у нас осталось 1–2 фигуры (голый король или король + 1)
+        const boardPart = fen.split(' ')[0]
+        const ourPieceCount = myColor === 'w'
+          ? (boardPart.match(/[KQRBNP]/g) || []).length
+          : (boardPart.match(/[kqrbnp]/g) || []).length
+        const hyperTurbo = ourPieceCount <= 2
+
         const moveNum  = Math.ceil(chess.history().length / 2) + 1
         const skipBook = chess.history().length >= 6 && Math.random() < 0.15
         const book     = skipBook ? null : bookMove(chess)
@@ -711,11 +718,13 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
         // Соперник в глубоком цейтноте, а мы впереди — держим темп, давим на часы
         const pressingOpp = isBulletGame && oppSecs !== null && oppSecs < 6 && timeDelta > 4
 
-        const delay = book
-          ? (200 + Math.random() * 400)
-          : pressingOpp
-            ? (150 + Math.random() * 250)
-            : humanDelay(effSecs, moveNum, isFast, timeDelta)
+        const delay = hyperTurbo
+          ? (5 + Math.random() * 10)
+          : book
+            ? (200 + Math.random() * 400)
+            : pressingOpp
+              ? (150 + Math.random() * 250)
+              : humanDelay(effSecs, moveNum, isFast, timeDelta)
 
         const effTag = (secs !== null && Math.abs(effSecs - secs) >= 2) ? ` (эфф ${Math.round(effSecs)}с)` : ''
         const timeInfo = secs !== null
@@ -735,8 +744,8 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
         const boardBox = await page.locator(boardSel).first().boundingBox()
         if (!boardBox) { console.log('Доска исчезла'); break }
 
-        // Турбо: эффективное время < 6с (абсолютный цейтнот ИЛИ сильное отставание в пуле)
-        const turbo = effSecs !== null && effSecs < 6
+        // Турбо: эффективное время < 6с ИЛИ осталось 1–2 фигуры
+        const turbo = hyperTurbo || (effSecs !== null && effSecs < 6)
         await clickSquare(page, from, boardBox, flipped, turbo)
         await page.waitForTimeout(turbo ? 5 + Math.random() * 10 : pressingOpp ? 20 + Math.random() * 30 : 60 + Math.random() * 80)
         await clickSquare(page, to, boardBox, flipped, turbo)
