@@ -48,6 +48,7 @@ let savedSkill = null
 let mousePos = { x: 0, y: 0 }  // текущая позиция виртуальной мыши
 let gamesPlayed = 0             // счётчик партий для симуляции усталости
 let fatigueGamesLeft = 0        // осталось партий в режиме усталости
+let errorStreakLeft = 0         // осталось ходов в серии намеренных ошибок
 
 // Количество ходов которые считаются дебютом (быстрая игра)
 const OPENING_MOVES = 10
@@ -351,10 +352,11 @@ async function initEngine() {
   const sfExe = path.join(__dirname, 'stockfish.exe')
   const proc  = spawn(sfExe)
 
-  let bestMoveCb = null
-  let readyOkCb  = null
-  let multiMoves = {}   // { 1: {move,score}, 2: {move,score}, 3: {move,score} }
-  let buf        = ''
+  let bestMoveCb     = null
+  let readyOkCb      = null
+  let multiMoves     = {}
+  let forceSuboptimal = false
+  let buf            = ''
 
   proc.on('error', (err) => {
     console.error('\nНе найден stockfish.exe:', err.message)
@@ -395,17 +397,19 @@ async function initEngine() {
         const s3 = multiMoves[3]?.score ?? -9999
         multiMoves = {}
 
-        // Не зеваем когда выигрываем (счёт > 200cp) или проигрываем (< -100cp)
-        // В равных/слегка лучших позициях — иногда играем не лучший ход
         const winning = s1 > 200
         const losing  = s1 < -100
         const rnd = Math.random()
         lastEngineScore = s1
 
-        if (!winning && !losing && m3 && Math.abs(s1 - s3) < 120 && rnd < 0.06) {
-          cb(m3)  // 3-й ход — порог расширен 50→120
+        // Серия ошибок или случайный плохой ход — всегда m2/m3 независимо от позиции
+        if (forceSuboptimal) {
+          forceSuboptimal = false
+          cb(m3 && Math.random() < 0.4 ? m3 : (m2 || (best === '(none)' ? null : best)))
+        } else if (!winning && !losing && m3 && Math.abs(s1 - s3) < 120 && rnd < 0.06) {
+          cb(m3)
         } else if (!winning && !losing && m2 && Math.abs(s1 - s2) < 200 && rnd < 0.20) {
-          cb(m2)  // 2-й ход — порог расширен 80→200
+          cb(m2)
         } else {
           cb(best === '(none)' || !best ? null : best)
         }
@@ -426,9 +430,10 @@ async function initEngine() {
   console.log(`Depth: ${DEPTH} | Skill: ${SKILL}\n`)
 
   return {
-    getBestMove(fen) {
+    getBestMove(fen, suboptimal = false) {
       return new Promise(res => {
         multiMoves = {}
+        forceSuboptimal = suboptimal
         bestMoveCb = res
         send('stop')
         send(`setoption name Skill Level value ${SKILL}`)
@@ -754,11 +759,26 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
           from = book.from; to = book.to; promo = book.promotion || null; tag = '[книга]'
           process.stdout.write(`Ход ${moveNum} ${tag} | `)
         } else {
-          tag = isFast ? `[быстро d${DEPTH}]` : `[d${DEPTH}s${SKILL}]`
+          // Сложность позиции: много вариантов → 30% шанс снизить глубину на 2
+          const legalCount = chess.moves().length
+          const isComplex  = legalCount > 32
+          const origDepth  = DEPTH
+          if (isComplex && Math.random() < 0.30) DEPTH = Math.max(1, DEPTH - 2)
+
+          // Серия ошибок: 5% шанс начать 2–3 плохих хода подряд
+          if (errorStreakLeft <= 0 && Math.random() < 0.05) {
+            errorStreakLeft = 1 + Math.floor(Math.random() * 2)
+          }
+          const inStreak = errorStreakLeft > 0
+          if (inStreak) errorStreakLeft--
+
+          const streakTag = inStreak ? '⚡' : isComplex && DEPTH < origDepth ? '~' : ''
+          tag = isFast ? `[быстро d${DEPTH}]` : `[d${DEPTH}s${SKILL}${streakTag}]`
           process.stdout.write(`Ход ${moveNum} ${tag} | Думаю... `)
           const t0 = Date.now()
-          const uciMove = await engine.getBestMove(fen)
+          const uciMove = await engine.getBestMove(fen, inStreak)
           ms = Date.now() - t0
+          DEPTH = origDepth
           if (!uciMove) { console.log('(нет хода)'); continue }
           from = uciMove.slice(0, 2); to = uciMove.slice(2, 4); promo = uciMove[4] || null
         }
