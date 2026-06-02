@@ -481,6 +481,23 @@ async function readChessComState(page) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Движение мыши по кривой Безье — выглядит как человек, не прямая линия
+// ─────────────────────────────────────────────────────────────────────────────
+async function moveMousaBezier(page, fromX, fromY, toX, toY) {
+  const steps = 6 + Math.floor(Math.random() * 8)  // 6–13 промежуточных точек
+  // Контрольная точка — случайное смещение перпендикулярно пути
+  const cpX = (fromX + toX) / 2 + (Math.random() - 0.5) * 120
+  const cpY = (fromY + toY) / 2 + (Math.random() - 0.5) * 120
+  for (let i = 1; i <= steps; i++) {
+    const t = i / steps
+    const bx = (1-t)*(1-t)*fromX + 2*(1-t)*t*cpX + t*t*toX
+    const by = (1-t)*(1-t)*fromY + 2*(1-t)*t*cpY + t*t*toY
+    await page.mouse.move(bx, by)
+    await page.waitForTimeout(4 + Math.random() * 8)
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Кликаем по клетке — с имитацией движения мыши как у человека
 // ─────────────────────────────────────────────────────────────────────────────
 async function clickSquare(page, square, boardBox, isFlipped, turbo = false) {
@@ -490,16 +507,18 @@ async function clickSquare(page, square, boardBox, isFlipped, turbo = false) {
   const x    = boardBox.x + (isFlipped ? (7 - file) : file) * sz + sz / 2
   const y    = boardBox.y + (isFlipped ? rank : (7 - rank)) * sz + sz / 2
 
-  // В турбо-режиме (< 3 сек) пропускаем всё лишнее — только клик
+  // В турбо-режиме — только прямой клик, без движений
   if (!turbo && Math.random() < 0.60) {
     const dx = (Math.random() < 0.5 ? -1 : 1) * (0.6 + Math.random() * 0.9)
     const dy = (Math.random() < 0.5 ? -1 : 1) * (0.6 + Math.random() * 0.9)
     const hoverX = Math.max(boardBox.x + sz * 0.1, Math.min(boardBox.x + boardBox.width  - sz * 0.1, x + dx * sz))
     const hoverY = Math.max(boardBox.y + sz * 0.1, Math.min(boardBox.y + boardBox.height - sz * 0.1, y + dy * sz))
-    await page.mouse.move(hoverX, hoverY)
+    await moveMousaBezier(page, x, y, hoverX, hoverY)
     await page.waitForTimeout(70 + Math.random() * 180)
+    await moveMousaBezier(page, hoverX, hoverY, x, y)
+  } else if (!turbo) {
+    await moveMousaBezier(page, x + (Math.random() - 0.5) * sz * 2, y + (Math.random() - 0.5) * sz * 2, x, y)
   }
-  await page.mouse.move(x, y)
   await page.waitForTimeout(turbo ? 5 + Math.random() * 10 : 25 + Math.random() * 55)
   await page.mouse.click(x, y)
 }
