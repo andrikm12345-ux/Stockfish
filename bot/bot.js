@@ -50,6 +50,19 @@ let gamesPlayed = 0             // счётчик партий для симул
 let fatigueGamesLeft = 0        // осталось партий в режиме усталости
 let errorStreakLeft = 0         // осталось ходов в серии намеренных ошибок
 
+// ─── Дневной счётчик партий ───────────────────────────────────────────────────
+const STATS_FILE = path.join(__dirname, 'bot-stats.json')
+function loadDailyCount() {
+  try {
+    const data = JSON.parse(fs.readFileSync(STATS_FILE, 'utf8'))
+    if (data.date === new Date().toISOString().slice(0, 10)) return data.count
+  } catch {}
+  return 0
+}
+function saveDailyCount(count) {
+  fs.writeFileSync(STATS_FILE, JSON.stringify({ date: new Date().toISOString().slice(0, 10), count }))
+}
+
 // Количество ходов которые считаются дебютом (быстрая игра)
 const OPENING_MOVES = 10
 
@@ -516,11 +529,36 @@ async function moveMousaBezier(page, fromX, fromY, toX, toY) {
   mousePos.x = toX; mousePos.y = toY
 }
 
+// Реальное переключение вкладки — открывает about:blank, ждёт, возвращается
+async function simulateTabSwitch(page) {
+  try {
+    const ctx = page.context()
+    const blank = await ctx.newPage()
+    await blank.goto('about:blank')
+    await blank.waitForTimeout(3000 + Math.random() * 4000)
+    await blank.close()
+    await page.bringToFront()
+  } catch {}
+}
+
 // Мышь блуждает по доске пока бот думает — имитирует человека
-async function thinkingWander(page, boardBox, durationMs, skipWander) {
+async function thinkingWander(page, boardBox, durationMs, skipWander, canTabSwitch = false) {
   if (skipWander || durationMs < 200 || !boardBox) {
     await page.waitForTimeout(durationMs); return
   }
+
+  // Переключение вкладки: только в блице/рапиде, долгая дума, 35% шанс
+  let tabSwitchDone = false
+  if (canTabSwitch && durationMs > 8000 && Math.random() < 0.35) {
+    const waitBefore = 1000 + Math.random() * 2000
+    await page.waitForTimeout(waitBefore)
+    await simulateTabSwitch(page)
+    tabSwitchDone = true
+    const remaining = durationMs - waitBefore - 7000
+    if (remaining > 0) await page.waitForTimeout(remaining)
+    return
+  }
+
   const end = Date.now() + durationMs
   let cx = mousePos.x || boardBox.x + boardBox.width / 2
   let cy = mousePos.y || boardBox.y + boardBox.height / 2
@@ -852,7 +890,9 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
         const turbo = hyperTurbo || (effSecs !== null && effSecs < 6)
 
         // Пока ждём — мышь блуждает по доске (кроме турбо)
-        await thinkingWander(page, boardBox, delay, turbo)
+        // canTabSwitch: только блиц/рапид + долгая дума
+        const canTabSwitch = isLongThink && !isBulletGame
+        await thinkingWander(page, boardBox, delay, turbo, canTabSwitch)
 
         await clickSquare(page, from, boardBox, flipped, turbo)
         await page.waitForTimeout(turbo ? 5 + Math.random() * 10 : pressingOpp ? 20 + Math.random() * 30 : 60 + Math.random() * 80)
@@ -871,6 +911,20 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
         fatigueGamesLeft = 2 + Math.floor(Math.random() * 3)
         console.log(`[усталость] Замедляюсь на ${fatigueGamesLeft} игры (партия ${gamesPlayed})`)
       }
+
+      // Дневной счётчик — предупреждения о риске бана
+      const dailyCount = loadDailyCount() + 1
+      saveDailyCount(dailyCount)
+      if (dailyCount === 15) {
+        console.log('\n⚠️  15 партий сегодня. Рекомендую сделать перерыв 15–20 мин.')
+      } else if (dailyCount === 20) {
+        console.log('\n🔴  20 партий сегодня — повышенный риск! Лучше остановиться на сегодня.')
+      } else if (dailyCount >= 25) {
+        console.log('\n🔴🔴 25+ партий — СТОП. Очень высокий риск бана. Продолжать крайне не рекомендуется.')
+      } else {
+        console.log(`[сегодня: ${dailyCount} партий]`)
+      }
+
       await page.waitForTimeout(1500)
     }
   } finally {
