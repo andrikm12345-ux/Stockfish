@@ -492,9 +492,8 @@ async function readLichessState(page) {
     const isFlipped = !!document.querySelector('.cg-wrap.orientation-black')
     const gameOver  = !!(
       document.querySelector('.result-wrap .result') ||
-      document.querySelector('[class*="endgame"]') ||
-      document.querySelector('.game-over') ||
-      document.querySelector('.status[class*="ended"]')
+      document.querySelector('.game__result') ||
+      document.querySelector('div.result-wrap')
     )
     return { sanMoves, isFlipped, gameOver }
   })
