@@ -521,11 +521,10 @@ async function moveMousaBezier(page, fromX, fromY, toX, toY) {
   const cpY = (fromY + toY) / 2 + (Math.random() - 0.5) * 120
   for (let i = 1; i <= steps; i++) {
     const tRaw = i / steps
-    // ease-in-out: плавный старт и торможение у цели
     const t = tRaw < 0.5 ? 2 * tRaw * tRaw : 1 - Math.pow(-2 * tRaw + 2, 2) / 2
     const bx = (1-t)*(1-t)*fromX + 2*(1-t)*t*cpX + t*t*toX
     const by = (1-t)*(1-t)*fromY + 2*(1-t)*t*cpY + t*t*toY
-    await page.mouse.move(bx, by)
+    try { await page.mouse.move(bx, by) } catch { break }
     await page.waitForTimeout(4 + Math.random() * 8)
   }
   mousePos.x = toX; mousePos.y = toY
@@ -549,40 +548,47 @@ async function thinkingWander(page, boardBox, durationMs, skipWander, canTabSwit
     await page.waitForTimeout(durationMs); return
   }
 
-  // Переключение вкладки: только в блице/рапиде, долгая дума, 35% шанс
-  if (canTabSwitch && durationMs > 8000 && Math.random() < 0.35) {
-    const waitBefore = 1000 + Math.random() * 2000
-    await page.waitForTimeout(waitBefore)
-    const t0 = Date.now()
-    await simulateTabSwitch(page)
-    const tabDuration = Date.now() - t0
-    const remaining = durationMs - waitBefore - tabDuration
-    if (remaining > 0) await page.waitForTimeout(remaining)
-    return
+  // Общий таймаут — если страница зависла, не блокируем бота дольше чем нужно
+  const deadline = new Promise(r => setTimeout(r, durationMs + 3000))
+
+  const work = async () => {
+    // Переключение вкладки: только в блице/рапиде, долгая дума, 35% шанс
+    if (canTabSwitch && durationMs > 8000 && Math.random() < 0.35) {
+      const waitBefore = 1000 + Math.random() * 2000
+      await page.waitForTimeout(waitBefore)
+      const t0 = Date.now()
+      await simulateTabSwitch(page)
+      const tabDuration = Date.now() - t0
+      const remaining = durationMs - waitBefore - tabDuration
+      if (remaining > 0) await page.waitForTimeout(remaining)
+      return
+    }
+
+    const end = Date.now() + durationMs
+    let cx = mousePos.x || boardBox.x + boardBox.width / 2
+    let cy = mousePos.y || boardBox.y + boardBox.height / 2
+    while (Date.now() < end - 150) {
+      const tx = boardBox.x + 15 + Math.random() * (boardBox.width - 30)
+      const ty = boardBox.y + 15 + Math.random() * (boardBox.height - 30)
+      const dist = Math.hypot(tx - cx, ty - cy)
+      const steps = Math.max(3, Math.floor(dist / 40))
+      for (let i = 1; i <= steps; i++) {
+        if (Date.now() >= end - 150) break
+        const t = i / steps
+        try { await page.mouse.move(cx + (tx - cx) * t, cy + (ty - cy) * t) } catch { return }
+        await page.waitForTimeout(12 + Math.random() * 20)
+      }
+      cx = tx; cy = ty
+      mousePos.x = cx; mousePos.y = cy
+      const pause = 100 + Math.random() * 300
+      if (Date.now() + pause < end - 150) await page.waitForTimeout(pause)
+      else break
+    }
+    const left = end - Date.now()
+    if (left > 0) await page.waitForTimeout(left)
   }
 
-  const end = Date.now() + durationMs
-  let cx = mousePos.x || boardBox.x + boardBox.width / 2
-  let cy = mousePos.y || boardBox.y + boardBox.height / 2
-  while (Date.now() < end - 150) {
-    const tx = boardBox.x + 15 + Math.random() * (boardBox.width - 30)
-    const ty = boardBox.y + 15 + Math.random() * (boardBox.height - 30)
-    const dist = Math.hypot(tx - cx, ty - cy)
-    const steps = Math.max(3, Math.floor(dist / 40))
-    for (let i = 1; i <= steps; i++) {
-      if (Date.now() >= end - 150) break
-      const t = i / steps
-      await page.mouse.move(cx + (tx - cx) * t, cy + (ty - cy) * t)
-      await page.waitForTimeout(12 + Math.random() * 20)
-    }
-    cx = tx; cy = ty
-    mousePos.x = cx; mousePos.y = cy
-    const pause = 100 + Math.random() * 300
-    if (Date.now() + pause < end - 150) await page.waitForTimeout(pause)
-    else break
-  }
-  const left = end - Date.now()
-  if (left > 0) await page.waitForTimeout(left)
+  await Promise.race([work(), deadline])
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -614,10 +620,10 @@ async function clickSquare(page, square, boardBox, isFlipped, turbo = false) {
   await page.waitForTimeout(turbo ? 5 + Math.random() * 10 : 25 + Math.random() * 55)
   // 7% шанс слегка промахнуться и поправить — как живой человек
   if (!turbo && Math.random() < 0.07) {
-    await page.mouse.click(x + (Math.random() - 0.5) * 14, y + (Math.random() - 0.5) * 14)
+    try { await page.mouse.click(x + (Math.random() - 0.5) * 14, y + (Math.random() - 0.5) * 14) } catch {}
     await page.waitForTimeout(60 + Math.random() * 100)
   }
-  await page.mouse.click(x, y)
+  try { await page.mouse.click(x, y) } catch {}
   mousePos.x = x; mousePos.y = y
 }
 
