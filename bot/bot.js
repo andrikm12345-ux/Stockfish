@@ -461,6 +461,8 @@ async function initEngine() {
         send(`setoption name Skill Level value ${SKILL}`)
         send(`position fen ${fen}`)
         send(engineCmd())
+        // Таймаут 10с — если движок завис, не блокируем весь бот
+        setTimeout(() => { if (bestMoveCb === res) { bestMoveCb = null; res(null) } }, 10000)
       })
     },
     quit() { send('quit') },
@@ -915,19 +917,19 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
         const pmChance  = isBulletGame ? 0.28 : 0.20
         const pmAllowed = (isBulletGame || gameCategory === 'blitz')
         if (pmAllowed && !promo && !turbo && effSecs !== null && effSecs > pmMinSecs && Math.random() < pmChance) {
+          const origDepth = DEPTH
           try {
             const chessAfter = new Chess()
             for (const san of sanMoves) { try { chessAfter.move(san) } catch {} }
-            chessAfter.move({ from, to, promotion: 'q' })   // применяем свой ход
+            chessAfter.move({ from, to, promotion: 'q' })
             const fenAfterOur = chessAfter.fen()
 
-            const origDepth = DEPTH
             DEPTH = 2
-            const oppMove = await engine.getBestMove(fenAfterOur)  // лучший ход соперника
+            const oppMove = await engine.getBestMove(fenAfterOur)
             if (oppMove && oppMove.length >= 4) {
               chessAfter.move({ from: oppMove.slice(0,2), to: oppMove.slice(2,4), promotion: 'q' })
               DEPTH = 3
-              const pmMove = await engine.getBestMove(chessAfter.fen())  // наш ответ
+              const pmMove = await engine.getBestMove(chessAfter.fen())
               if (pmMove && pmMove.length >= 4) {
                 const pmFrom = pmMove.slice(0, 2)
                 const pmTo   = pmMove.slice(2, 4)
@@ -938,8 +940,9 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
                 console.log(`[премув] ${pmFrom}→${pmTo}`)
               }
             }
-            DEPTH = origDepth
-          } catch { /* позиция невалидна — просто пропускаем */ }
+          } catch { /* позиция невалидна — пропускаем */ } finally {
+            DEPTH = origDepth  // всегда восстанавливаем, даже если было исключение
+          }
         }
       }
       // Счётчик партий — усталость каждые 10–15 игр
