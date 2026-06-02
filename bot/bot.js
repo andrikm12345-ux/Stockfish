@@ -936,6 +936,18 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
             chessAfter.move({ from, to, promotion: 'q' })
             const fenAfterOur = chessAfter.fen()
 
+            // Если наш ферзь под ударом — не премувим, надо реагировать по ситуации
+            const oppMovesCurrent = chessAfter.moves({ verbose: true })
+            const board = chessAfter.board()
+            let ourQueenSq = null
+            for (let r = 0; r < 8 && !ourQueenSq; r++) {
+              for (let f = 0; f < 8 && !ourQueenSq; f++) {
+                const p = board[r][f]
+                if (p && p.type === 'q' && p.color === myColor) ourQueenSq = 'abcdefgh'[f] + (8 - r)
+              }
+            }
+            if (ourQueenSq && oppMovesCurrent.some(m => m.to === ourQueenSq)) return
+
             // Полная сила для премувов — не зависит от текущих настроек skill/depth
             SKILL = 20
             DEPTH = Math.max(origDepth, 8)
