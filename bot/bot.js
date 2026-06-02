@@ -908,9 +908,13 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
           console.log('(превращение: ферзь)')
         }
 
-        // Премув: только пуля, не в цейтноте (<6с), не промо, 28% шанс
+        // Премув: пуля и блиц, не в цейтноте, не промо
+        // Пуля: запас >6с, 28% шанс · Блиц: запас >15с, 20% шанс
         // Предсказываем ход соперника (d2) → считаем наш ответ (d3) → кликаем заранее
-        if (isBulletGame && !promo && !turbo && effSecs !== null && effSecs > 6 && Math.random() < 0.28) {
+        const pmMinSecs = isBulletGame ? 6 : 15
+        const pmChance  = isBulletGame ? 0.28 : 0.20
+        const pmAllowed = (isBulletGame || gameCategory === 'blitz')
+        if (pmAllowed && !promo && !turbo && effSecs !== null && effSecs > pmMinSecs && Math.random() < pmChance) {
           try {
             const chessAfter = new Chess()
             for (const san of sanMoves) { try { chessAfter.move(san) } catch {} }
