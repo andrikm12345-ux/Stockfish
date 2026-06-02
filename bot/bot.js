@@ -907,6 +907,36 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
           await clickSquare(page, to, boardBox, flipped, true)
           console.log('(превращение: ферзь)')
         }
+
+        // Премув: только пуля, не в цейтноте (<6с), не промо, 28% шанс
+        // Предсказываем ход соперника (d2) → считаем наш ответ (d3) → кликаем заранее
+        if (isBulletGame && !promo && !turbo && effSecs !== null && effSecs > 6 && Math.random() < 0.28) {
+          try {
+            const chessAfter = new Chess()
+            for (const san of sanMoves) { try { chessAfter.move(san) } catch {} }
+            chessAfter.move({ from, to, promotion: 'q' })   // применяем свой ход
+            const fenAfterOur = chessAfter.fen()
+
+            const origDepth = DEPTH
+            DEPTH = 2
+            const oppMove = await engine.getBestMove(fenAfterOur)  // лучший ход соперника
+            if (oppMove && oppMove.length >= 4) {
+              chessAfter.move({ from: oppMove.slice(0,2), to: oppMove.slice(2,4), promotion: 'q' })
+              DEPTH = 3
+              const pmMove = await engine.getBestMove(chessAfter.fen())  // наш ответ
+              if (pmMove && pmMove.length >= 4) {
+                const pmFrom = pmMove.slice(0, 2)
+                const pmTo   = pmMove.slice(2, 4)
+                await page.waitForTimeout(80 + Math.random() * 200)
+                await clickSquare(page, pmFrom, boardBox, flipped, true)
+                await page.waitForTimeout(30 + Math.random() * 50)
+                await clickSquare(page, pmTo, boardBox, flipped, true)
+                console.log(`[премув] ${pmFrom}→${pmTo}`)
+              }
+            }
+            DEPTH = origDepth
+          } catch { /* позиция невалидна — просто пропускаем */ }
+        }
       }
       // Счётчик партий — усталость каждые 10–15 игр
       gamesPlayed++
