@@ -206,53 +206,52 @@ function startCommandListener(page) {
 function humanDelay(remainingSecs, moveNum, isFast, timeDelta = 0) {
   // Цейтнот — всегда приоритет независимо от режима
   if (remainingSecs !== null) {
-    if (remainingSecs < 6)  return 20  + Math.random() * 20
-    if (remainingSecs < 10) return 130 + Math.random() * 170
+    if (remainingSecs < 6)  return { ms: 20  + Math.random() * 20,  isLongThink: false }
+    if (remainingSecs < 10) return { ms: 130 + Math.random() * 170, isLongThink: false }
   }
 
   // Профили по типу игры
   if (gameCategory === 'bullet') {
-    if (isFast)              return 80  + Math.random() * 170   // 80–250мс
-    if (moveNum <= OPENING_MOVES) return 250 + Math.random() * 450 // 250–700мс
+    if (isFast)              return { ms: 80  + Math.random() * 170, isLongThink: false }
+    if (moveNum <= OPENING_MOVES) return { ms: 250 + Math.random() * 450, isLongThink: false }
     if (remainingSecs !== null) {
-      // 0.8–2.3% → при 40с: 320–920мс | при 20с: 160–460мс
       let ms = remainingSecs * (0.008 + Math.random() * 0.015) * 1000
-      // Запас 15+ сек: расслабляемся — больше шанс подумать дольше
       const thinkChance = timeDelta >= 15 ? 0.25 : 0.10
       const thinkMult   = timeDelta >= 15 ? (2.0 + Math.random() * 2.0) : (1.5 + Math.random() * 1.0)
-      if (Math.random() < thinkChance) ms *= thinkMult
-      return Math.max(120, Math.min(2000, ms))
+      let isLongThink = false
+      if (Math.random() < thinkChance) { ms *= thinkMult; isLongThink = true }
+      return { ms: Math.max(120, Math.min(2000, ms)), isLongThink }
     }
   }
 
   if (gameCategory === 'blitz') {
-    if (isFast)              return 200 + Math.random() * 400   // 200–600мс
-    if (moveNum <= OPENING_MOVES) return 600 + Math.random() * 1200 // 600–1800мс
+    if (isFast)              return { ms: 200 + Math.random() * 400,  isLongThink: false }
+    if (moveNum <= OPENING_MOVES) return { ms: 600 + Math.random() * 1200, isLongThink: false }
     if (remainingSecs !== null) {
-      // 1–3.5% → при 300с: 3–10.5с | при 100с: 1–3.5с | макс 15с
       let ms = remainingSecs * (0.01 + Math.random() * 0.025) * 1000
-      if (Math.random() < 0.12) ms *= 1.2 + Math.random() * 0.5  // иногда думает дольше ×1.2–1.7
-      return Math.max(300, Math.min(15000, ms))
+      let isLongThink = false
+      if (Math.random() < 0.12) { ms *= 1.2 + Math.random() * 0.5; isLongThink = true }
+      return { ms: Math.max(300, Math.min(15000, ms)), isLongThink }
     }
   }
 
   if (gameCategory === 'rapid') {
-    if (isFast)              return 300 + Math.random() * 600   // 300–900мс
-    if (moveNum <= OPENING_MOVES) return 800 + Math.random() * 2000 // 800–2800мс
+    if (isFast)              return { ms: 300 + Math.random() * 600,  isLongThink: false }
+    if (moveNum <= OPENING_MOVES) return { ms: 800 + Math.random() * 2000, isLongThink: false }
     if (remainingSecs !== null) {
-      // 1.5–4.5% → при 600с: 9–27с | при 200с: 3–9с | макс 25с
       let ms = remainingSecs * (0.015 + Math.random() * 0.03) * 1000
-      if (Math.random() < 0.18) ms *= 1.3 + Math.random() * 0.7  // думает дольше ×1.3–2.0
-      return Math.max(300, Math.min(25000, ms))
+      let isLongThink = false
+      if (Math.random() < 0.18) { ms *= 1.3 + Math.random() * 0.7; isLongThink = true }
+      return { ms: Math.max(300, Math.min(25000, ms)), isLongThink }
     }
   }
 
-  // Нет часов — случайные профили
+  // Нет часов
   const r = Math.random()
-  if (r < 0.15) return 500  + Math.random() * 1000
-  if (r < 0.55) return 2000 + Math.random() * 4000
-  if (r < 0.80) return 5000 + Math.random() * 6000
-  return 10000 + Math.random() * 15000
+  if (r < 0.15) return { ms: 500  + Math.random() * 1000,  isLongThink: false }
+  if (r < 0.55) return { ms: 2000 + Math.random() * 4000,  isLongThink: false }
+  if (r < 0.80) return { ms: 5000 + Math.random() * 6000,  isLongThink: false }
+  return { ms: 10000 + Math.random() * 15000, isLongThink: false }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -352,11 +351,12 @@ async function initEngine() {
   const sfExe = path.join(__dirname, 'stockfish.exe')
   const proc  = spawn(sfExe)
 
-  let bestMoveCb     = null
-  let readyOkCb      = null
-  let multiMoves     = {}
+  let bestMoveCb      = null
+  let readyOkCb       = null
+  let multiMoves      = {}
   let forceSuboptimal = false
-  let buf            = ''
+  let lateGameMode    = false
+  let buf             = ''
 
   proc.on('error', (err) => {
     console.error('\nНе найден stockfish.exe:', err.message)
@@ -402,16 +402,24 @@ async function initEngine() {
         const rnd = Math.random()
         lastEngineScore = s1
 
-        // Серия ошибок или случайный плохой ход — всегда m2/m3 независимо от позиции
-        if (forceSuboptimal) {
+        // Вероятности m2/m3: выше в конце партии (усталость)
+        const m2chance = lateGameMode ? 0.28 : 0.20
+        const m3chance = lateGameMode ? 0.12 : 0.06
+        lateGameMode = false
+
+        // Серия ошибок: только в некритичных позициях
+        if (forceSuboptimal && !winning && !losing) {
           forceSuboptimal = false
           cb(m3 && Math.random() < 0.4 ? m3 : (m2 || (best === '(none)' ? null : best)))
-        } else if (!winning && !losing && m3 && Math.abs(s1 - s3) < 120 && rnd < 0.06) {
-          cb(m3)
-        } else if (!winning && !losing && m2 && Math.abs(s1 - s2) < 200 && rnd < 0.20) {
-          cb(m2)
         } else {
-          cb(best === '(none)' || !best ? null : best)
+          forceSuboptimal = false
+          if (!winning && !losing && m3 && Math.abs(s1 - s3) < 120 && rnd < m3chance) {
+            cb(m3)
+          } else if (!winning && !losing && m2 && Math.abs(s1 - s2) < 200 && rnd < m2chance) {
+            cb(m2)
+          } else {
+            cb(best === '(none)' || !best ? null : best)
+          }
         }
       }
     }
@@ -430,10 +438,11 @@ async function initEngine() {
   console.log(`Depth: ${DEPTH} | Skill: ${SKILL}\n`)
 
   return {
-    getBestMove(fen, suboptimal = false) {
+    getBestMove(fen, suboptimal = false, lateGame = false) {
       return new Promise(res => {
         multiMoves = {}
         forceSuboptimal = suboptimal
+        lateGameMode = lateGame
         bestMoveCb = res
         send('stop')
         send(`setoption name Skill Level value ${SKILL}`)
@@ -707,6 +716,7 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
 
       const { isFlipped: fl } = initialState
       const myColor = fl ? 'b' : 'w'
+      errorStreakLeft = 0
       await detectGameType(page)
       console.log(`Играю за: ${myColor === 'w' ? '♔ Белых' : '♚ Чёрных'} | Depth:${DEPTH} Skill:${SKILL}${AUTO_DEPTH ? ' [авто]' : ''}`)
 
@@ -754,67 +764,79 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
         const isFast = !book && fastStreakLeft > 0
         if (isFast) fastStreakLeft--
 
+        // ── 1. Часы сначала — нужны для расчёта паузы и isLongThink ──────────
+        const { our: secs, opp: oppSecs } = isLichess ? await readBothClocks(page) : { our: null, opp: null }
+        const timeDelta = (secs !== null && oppSecs !== null) ? secs - oppSecs : 0
+        let effSecs = secs
+        if (secs !== null && isBulletGame && timeDelta < 0) {
+          effSecs = Math.max(1, Math.min(secs, secs + timeDelta * 0.5))
+        }
+        const pressingOpp = isBulletGame && oppSecs !== null && oppSecs < 6 && timeDelta > 4
+
+        // ── 2. Пауза и решение «думаю долго?» ─────────────────────────────────
+        let delay, isLongThink = false
+        if (hyperTurbo) {
+          delay = 5 + Math.random() * 10
+        } else if (book) {
+          delay = 200 + Math.random() * 400
+        } else if (pressingOpp) {
+          delay = 150 + Math.random() * 250
+        } else {
+          const result = humanDelay(effSecs, moveNum, isFast, timeDelta)
+          delay = result.ms
+          isLongThink = result.isLongThink
+          // Усталость не применяем при долгой думе — не суммируем замедлители
+          if (fatigueGamesLeft > 0 && !isLongThink) delay *= 1.3 + Math.random() * 0.3
+        }
+
+        // ── 3. Контекст хода: сложность, серия ошибок, конец партии ──────────
+        const legalCount = !book ? chess.moves().length : 0
+        const isComplex  = legalCount > 32
+        const isLateGame = moveNum > 30
+
+        // Серия ошибок: 5% (9% после хода 30). Не запускаем если думали долго
+        if (!book && !isLongThink && errorStreakLeft <= 0) {
+          if (Math.random() < (isLateGame ? 0.09 : 0.05)) {
+            errorStreakLeft = 1 + Math.floor(Math.random() * 2)
+          }
+        }
+        const inStreak = !book && !isLongThink && errorStreakLeft > 0
+        if (inStreak) errorStreakLeft--
+
+        // ── 4. Движок ──────────────────────────────────────────────────────────
         let from, to, promo, tag, ms = 0
         if (book) {
           from = book.from; to = book.to; promo = book.promotion || null; tag = '[книга]'
           process.stdout.write(`Ход ${moveNum} ${tag} | `)
         } else {
-          // Сложность позиции: много вариантов → 30% шанс снизить глубину на 2
-          const legalCount = chess.moves().length
-          const isComplex  = legalCount > 32
-          const origDepth  = DEPTH
-          if (isComplex && Math.random() < 0.30) DEPTH = Math.max(1, DEPTH - 2)
-
-          // Серия ошибок: 5% шанс начать 2–3 плохих хода подряд
-          if (errorStreakLeft <= 0 && Math.random() < 0.05) {
-            errorStreakLeft = 1 + Math.floor(Math.random() * 2)
+          const origDepth = DEPTH
+          if (isLongThink) {
+            // Думал долго → +1 глубина, лучший ход (все ошибки отключены)
+            DEPTH = Math.min(DEPTH + 1, 20)
+          } else if (isComplex && Math.random() < 0.30) {
+            // Сложная позиция → −2 глубины
+            DEPTH = Math.max(1, DEPTH - 2)
           }
-          const inStreak = errorStreakLeft > 0
-          if (inStreak) errorStreakLeft--
 
-          const streakTag = inStreak ? '⚡' : isComplex && DEPTH < origDepth ? '~' : ''
-          tag = isFast ? `[быстро d${DEPTH}]` : `[d${DEPTH}s${SKILL}${streakTag}]`
+          const modeTag = isLongThink ? '★' : inStreak ? '⚡' : isComplex && DEPTH < origDepth ? '~' : ''
+          tag = isFast ? `[быстро d${DEPTH}]` : `[d${DEPTH}s${SKILL}${modeTag}]`
           process.stdout.write(`Ход ${moveNum} ${tag} | Думаю... `)
           const t0 = Date.now()
-          const uciMove = await engine.getBestMove(fen, inStreak)
+          // isLongThink → suboptimal=false, lateGame=false (всегда лучший ход)
+          const uciMove = await engine.getBestMove(fen, inStreak, !isLongThink && isLateGame)
           ms = Date.now() - t0
           DEPTH = origDepth
           if (!uciMove) { console.log('(нет хода)'); continue }
           from = uciMove.slice(0, 2); to = uciMove.slice(2, 4); promo = uciMove[4] || null
         }
 
-        const { our: secs, opp: oppSecs } = isLichess ? await readBothClocks(page) : { our: null, opp: null }
-        const timeDelta = (secs !== null && oppSecs !== null) ? secs - oppSecs : 0
-
-        // Эффективное время — насколько реально поджимает. В пуле, если отстаём
-        // по времени, считаем как будто у нас меньше (половина отставания, пол 4с).
-        // Главная пауза И турбо опираются на ОДНО это число — без противоречий.
-        let effSecs = secs
-        if (secs !== null && isBulletGame && timeDelta < 0) {
-          effSecs = Math.max(1, Math.min(secs, secs + timeDelta * 0.5))
-        }
-
-        // Соперник в глубоком цейтноте, а мы впереди — держим темп, давим на часы
-        const pressingOpp = isBulletGame && oppSecs !== null && oppSecs < 6 && timeDelta > 4
-
-        // Усталость: каждые 10–15 партий — замедляемся на 2–3 игры
-        let humanMs = humanDelay(effSecs, moveNum, isFast, timeDelta)
-        if (fatigueGamesLeft > 0) humanMs *= 1.3 + Math.random() * 0.3
-
-        const delay = hyperTurbo
-          ? (5 + Math.random() * 10)
-          : book
-            ? (200 + Math.random() * 400)
-            : pressingOpp
-              ? (150 + Math.random() * 250)
-              : humanMs
-
+        // ── 5. Лог ────────────────────────────────────────────────────────────
         const effTag = (secs !== null && Math.abs(effSecs - secs) >= 2) ? ` (эфф ${Math.round(effSecs)}с)` : ''
         const timeInfo = secs !== null
           ? `, ${Math.round(secs)}с${effTag}${oppSecs !== null ? ` | opp ${Math.round(oppSecs)}с` : ''}`
           : ''
-        const fatigueTag = fatigueGamesLeft > 0 ? ' [устал]' : ''
-        console.log(`${from}→${to} (${ms ? `${ms}мс думал, ` : ''}${Math.round(delay)}мс пауза${timeInfo}${fatigueTag})`)
+        const extraTags = [fatigueGamesLeft > 0 ? '[устал]' : '', isLongThink ? '[★]' : ''].filter(Boolean).join(' ')
+        console.log(`${from}→${to} (${ms ? `${ms}мс думал, ` : ''}${Math.round(delay)}мс пауза${timeInfo}${extraTags ? ' ' + extraTags : ''})`)
 
         // Умное флагование: только когда проигрываем по времени И позиция не выигрышная
         if (!book && isBulletGame && secs !== null && secs < 10 && timeDelta < -3 && lastEngineScore < 100 && Math.random() < 0.08) {
