@@ -461,8 +461,11 @@ async function initEngine() {
         send(`setoption name Skill Level value ${SKILL}`)
         send(`position fen ${fen}`)
         send(engineCmd())
-        // Таймаут 10с — если движок завис, не блокируем весь бот
-        setTimeout(() => { if (bestMoveCb === res) { bestMoveCb = null; res(null) } }, 10000)
+        // Таймаут 10с и проверка RESTART каждые 200мс — r работает мгновенно
+        const restartCheck = setInterval(() => {
+          if (RESTART && bestMoveCb === res) { clearInterval(restartCheck); bestMoveCb = null; res(null) }
+        }, 200)
+        setTimeout(() => { clearInterval(restartCheck); if (bestMoveCb === res) { bestMoveCb = null; res(null) } }, 10000)
       })
     },
     quit() { send('quit') },
@@ -492,9 +495,8 @@ async function readLichessState(page) {
     const isFlipped = !!document.querySelector('.cg-wrap.orientation-black')
     const gameOver  = !!(
       document.querySelector('.result-wrap .result') ||
-      document.querySelector('[class*="endgame"]') ||
-      document.querySelector('.game-over') ||
-      document.querySelector('.status[class*="ended"]')
+      document.querySelector('.game__result') ||
+      document.querySelector('div.result-wrap')
     )
     return { sanMoves, isFlipped, gameOver }
   })
@@ -568,16 +570,18 @@ async function thinkingWander(page, boardBox, durationMs, skipWander, canTabSwit
     let cx = mousePos.x || boardBox.x + boardBox.width / 2
     let cy = mousePos.y || boardBox.y + boardBox.height / 2
     while (Date.now() < end - 150) {
+      if (RESTART) return  // r нажат — немедленно выходим
       const tx = boardBox.x + 15 + Math.random() * (boardBox.width - 30)
       const ty = boardBox.y + 15 + Math.random() * (boardBox.height - 30)
       const dist = Math.hypot(tx - cx, ty - cy)
       const steps = Math.max(3, Math.floor(dist / 40))
       for (let i = 1; i <= steps; i++) {
-        if (Date.now() >= end - 150) break
+        if (Date.now() >= end - 150 || RESTART) break
         const t = i / steps
         try { await page.mouse.move(cx + (tx - cx) * t, cy + (ty - cy) * t) } catch { return }
         await page.waitForTimeout(12 + Math.random() * 20)
       }
+      if (RESTART) return
       cx = tx; cy = ty
       mousePos.x = cx; mousePos.y = cy
       const pause = 100 + Math.random() * 300
@@ -585,7 +589,7 @@ async function thinkingWander(page, boardBox, durationMs, skipWander, canTabSwit
       else break
     }
     const left = end - Date.now()
-    if (left > 0) await page.waitForTimeout(left)
+    if (left > 0 && !RESTART) await page.waitForTimeout(left)
   }
 
   await Promise.race([work(), deadline])
