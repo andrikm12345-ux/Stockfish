@@ -923,7 +923,7 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
         // Премув: пуля и блиц, не в цейтноте, не промо
         // Пуля: запас >6с, 28% шанс · Блиц: запас >15с, 20% шанс
         // Предсказываем ход соперника → считаем наш ответ → кликаем заранее
-        // Всегда full strength (skill 20, depth origDepth+2) — премув должен быть надёжным
+        // Всегда full strength (skill 20, depth 8) — премув должен быть надёжным
         const pmMinSecs = isBulletGame ? 6 : 15
         const pmChance  = isBulletGame ? 0.28 : 0.20
         const pmAllowed = (isBulletGame || gameCategory === 'blitz')
@@ -950,7 +950,7 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
 
             // Полная сила для премувов — не зависит от текущих настроек skill/depth
             SKILL = 20
-            DEPTH = Math.min(origDepth + 2, 20)
+            DEPTH = isBulletGame ? 3 : Math.min(origDepth + 2, 20)
 
             const oppMove = await engine.getBestMove(fenAfterOur)
             if (!oppMove || oppMove.length < 4) return
