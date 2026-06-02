@@ -45,6 +45,9 @@ let lastPauseToggle = 0  // защита от двойного срабатыв�
 let RESTART = false    // сигнал перезапуска игрового цикла
 let savedDepth = null  // сохранённые значения до режима тупого
 let savedSkill = null
+let mousePos = { x: 0, y: 0 }  // текущая позиция виртуальной мыши
+let gamesPlayed = 0             // счётчик партий для симуляции усталости
+let fatigueGamesLeft = 0        // осталось партий в режиме усталости
 
 // Количество ходов которые считаются дебютом (быстрая игра)
 const OPENING_MOVES = 10
@@ -484,17 +487,48 @@ async function readChessComState(page) {
 // Движение мыши по кривой Безье — выглядит как человек, не прямая линия
 // ─────────────────────────────────────────────────────────────────────────────
 async function moveMousaBezier(page, fromX, fromY, toX, toY) {
-  const steps = 6 + Math.floor(Math.random() * 8)  // 6–13 промежуточных точек
-  // Контрольная точка — случайное смещение перпендикулярно пути
+  const steps = 6 + Math.floor(Math.random() * 8)
   const cpX = (fromX + toX) / 2 + (Math.random() - 0.5) * 120
   const cpY = (fromY + toY) / 2 + (Math.random() - 0.5) * 120
   for (let i = 1; i <= steps; i++) {
-    const t = i / steps
+    const tRaw = i / steps
+    // ease-in-out: плавный старт и торможение у цели
+    const t = tRaw < 0.5 ? 2 * tRaw * tRaw : 1 - Math.pow(-2 * tRaw + 2, 2) / 2
     const bx = (1-t)*(1-t)*fromX + 2*(1-t)*t*cpX + t*t*toX
     const by = (1-t)*(1-t)*fromY + 2*(1-t)*t*cpY + t*t*toY
     await page.mouse.move(bx, by)
     await page.waitForTimeout(4 + Math.random() * 8)
   }
+  mousePos.x = toX; mousePos.y = toY
+}
+
+// Мышь блуждает по доске пока бот думает — имитирует человека
+async function thinkingWander(page, boardBox, durationMs, skipWander) {
+  if (skipWander || durationMs < 200 || !boardBox) {
+    await page.waitForTimeout(durationMs); return
+  }
+  const end = Date.now() + durationMs
+  let cx = mousePos.x || boardBox.x + boardBox.width / 2
+  let cy = mousePos.y || boardBox.y + boardBox.height / 2
+  while (Date.now() < end - 150) {
+    const tx = boardBox.x + 15 + Math.random() * (boardBox.width - 30)
+    const ty = boardBox.y + 15 + Math.random() * (boardBox.height - 30)
+    const dist = Math.hypot(tx - cx, ty - cy)
+    const steps = Math.max(3, Math.floor(dist / 40))
+    for (let i = 1; i <= steps; i++) {
+      if (Date.now() >= end - 150) break
+      const t = i / steps
+      await page.mouse.move(cx + (tx - cx) * t, cy + (ty - cy) * t)
+      await page.waitForTimeout(12 + Math.random() * 20)
+    }
+    cx = tx; cy = ty
+    mousePos.x = cx; mousePos.y = cy
+    const pause = 100 + Math.random() * 300
+    if (Date.now() + pause < end - 150) await page.waitForTimeout(pause)
+    else break
+  }
+  const left = end - Date.now()
+  if (left > 0) await page.waitForTimeout(left)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -513,14 +547,20 @@ async function clickSquare(page, square, boardBox, isFlipped, turbo = false) {
     const dy = (Math.random() < 0.5 ? -1 : 1) * (0.6 + Math.random() * 0.9)
     const hoverX = Math.max(boardBox.x + sz * 0.1, Math.min(boardBox.x + boardBox.width  - sz * 0.1, x + dx * sz))
     const hoverY = Math.max(boardBox.y + sz * 0.1, Math.min(boardBox.y + boardBox.height - sz * 0.1, y + dy * sz))
-    await moveMousaBezier(page, x, y, hoverX, hoverY)
+    await moveMousaBezier(page, mousePos.x, mousePos.y, hoverX, hoverY)
     await page.waitForTimeout(70 + Math.random() * 180)
     await moveMousaBezier(page, hoverX, hoverY, x, y)
   } else if (!turbo) {
-    await moveMousaBezier(page, x + (Math.random() - 0.5) * sz * 2, y + (Math.random() - 0.5) * sz * 2, x, y)
+    await moveMousaBezier(page, mousePos.x, mousePos.y, x, y)
   }
   await page.waitForTimeout(turbo ? 5 + Math.random() * 10 : 25 + Math.random() * 55)
+  // 7% шанс слегка промахнуться и поправить — как живой человек
+  if (!turbo && Math.random() < 0.07) {
+    await page.mouse.click(x + (Math.random() - 0.5) * 14, y + (Math.random() - 0.5) * 14)
+    await page.waitForTimeout(60 + Math.random() * 100)
+  }
   await page.mouse.click(x, y)
+  mousePos.x = x; mousePos.y = y
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -737,19 +777,24 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
         // Соперник в глубоком цейтноте, а мы впереди — держим темп, давим на часы
         const pressingOpp = isBulletGame && oppSecs !== null && oppSecs < 6 && timeDelta > 4
 
+        // Усталость: каждые 10–15 партий — замедляемся на 2–3 игры
+        let humanMs = humanDelay(effSecs, moveNum, isFast, timeDelta)
+        if (fatigueGamesLeft > 0) humanMs *= 1.3 + Math.random() * 0.3
+
         const delay = hyperTurbo
           ? (5 + Math.random() * 10)
           : book
             ? (200 + Math.random() * 400)
             : pressingOpp
               ? (150 + Math.random() * 250)
-              : humanDelay(effSecs, moveNum, isFast, timeDelta)
+              : humanMs
 
         const effTag = (secs !== null && Math.abs(effSecs - secs) >= 2) ? ` (эфф ${Math.round(effSecs)}с)` : ''
         const timeInfo = secs !== null
           ? `, ${Math.round(secs)}с${effTag}${oppSecs !== null ? ` | opp ${Math.round(oppSecs)}с` : ''}`
           : ''
-        console.log(`${from}→${to} (${ms ? `${ms}мс думал, ` : ''}${Math.round(delay)}мс пауза${timeInfo})`)
+        const fatigueTag = fatigueGamesLeft > 0 ? ' [устал]' : ''
+        console.log(`${from}→${to} (${ms ? `${ms}мс думал, ` : ''}${Math.round(delay)}мс пауза${timeInfo}${fatigueTag})`)
 
         // Умное флагование: только когда проигрываем по времени И позиция не выигрышная
         if (!book && isBulletGame && secs !== null && secs < 10 && timeDelta < -3 && lastEngineScore < 100 && Math.random() < 0.08) {
@@ -758,13 +803,15 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
           continue
         }
 
-        await page.waitForTimeout(delay)
-
         const boardBox = await page.locator(boardSel).first().boundingBox()
         if (!boardBox) { console.log('Доска исчезла'); break }
 
         // Турбо: эффективное время < 6с ИЛИ осталось 1–2 фигуры
         const turbo = hyperTurbo || (effSecs !== null && effSecs < 6)
+
+        // Пока ждём — мышь блуждает по доске (кроме турбо)
+        await thinkingWander(page, boardBox, delay, turbo)
+
         await clickSquare(page, from, boardBox, flipped, turbo)
         await page.waitForTimeout(turbo ? 5 + Math.random() * 10 : pressingOpp ? 20 + Math.random() * 30 : 60 + Math.random() * 80)
         await clickSquare(page, to, boardBox, flipped, turbo)
@@ -774,6 +821,13 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
           await clickSquare(page, to, boardBox, flipped, true)
           console.log('(превращение: ферзь)')
         }
+      }
+      // Счётчик партий — усталость каждые 10–15 игр
+      gamesPlayed++
+      if (fatigueGamesLeft > 0) fatigueGamesLeft--
+      if (fatigueGamesLeft === 0 && gamesPlayed % (10 + Math.floor(Math.random() * 6)) === 0) {
+        fatigueGamesLeft = 2 + Math.floor(Math.random() * 3)
+        console.log(`[усталость] Замедляюсь на ${fatigueGamesLeft} игры (партия ${gamesPlayed})`)
       }
       await page.waitForTimeout(1500)
     }
