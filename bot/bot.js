@@ -922,36 +922,49 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
 
         // Премув: пуля и блиц, не в цейтноте, не промо
         // Пуля: запас >6с, 28% шанс · Блиц: запас >15с, 20% шанс
-        // Предсказываем ход соперника (d2) → считаем наш ответ (d3) → кликаем заранее
+        // Предсказываем ход соперника → считаем наш ответ → кликаем заранее
+        // Всегда full strength (skill 20, depth 8) — премув должен быть надёжным
         const pmMinSecs = isBulletGame ? 6 : 15
         const pmChance  = isBulletGame ? 0.28 : 0.20
         const pmAllowed = (isBulletGame || gameCategory === 'blitz')
         if (pmAllowed && !promo && !turbo && effSecs !== null && effSecs > pmMinSecs && Math.random() < pmChance) {
           const origDepth = DEPTH
+          const origSkill = SKILL
           try {
             const chessAfter = new Chess()
             for (const san of sanMoves) { try { chessAfter.move(san) } catch {} }
             chessAfter.move({ from, to, promotion: 'q' })
             const fenAfterOur = chessAfter.fen()
 
-            DEPTH = 2
+            // Полная сила для премувов — не зависит от текущих настроек skill/depth
+            SKILL = 20
+            DEPTH = Math.max(origDepth, 8)
+
             const oppMove = await engine.getBestMove(fenAfterOur)
-            if (oppMove && oppMove.length >= 4) {
-              chessAfter.move({ from: oppMove.slice(0,2), to: oppMove.slice(2,4), promotion: 'q' })
-              DEPTH = 3
-              const pmMove = await engine.getBestMove(chessAfter.fen())
-              if (pmMove && pmMove.length >= 4) {
-                const pmFrom = pmMove.slice(0, 2)
-                const pmTo   = pmMove.slice(2, 4)
-                await page.waitForTimeout(80 + Math.random() * 200)
-                await clickSquare(page, pmFrom, boardBox, flipped, true)
-                await page.waitForTimeout(30 + Math.random() * 50)
-                await clickSquare(page, pmTo, boardBox, flipped, true)
-                console.log(`[премув] ${pmFrom}→${pmTo}`)
-              }
-            }
+            if (!oppMove || oppMove.length < 4) return
+            const oppApplied = chessAfter.move({ from: oppMove.slice(0,2), to: oppMove.slice(2,4), promotion: 'q' })
+            if (!oppApplied) return
+
+            const pmMove = await engine.getBestMove(chessAfter.fen())
+            if (!pmMove || pmMove.length < 4) return
+
+            const pmFrom = pmMove.slice(0, 2)
+            const pmTo   = pmMove.slice(2, 4)
+
+            // Проверка гонки: соперник мог уже сыграть пока мы считали
+            const freshState = await readState(page)
+            const freshChess = new Chess()
+            for (const s of freshState.sanMoves) { try { freshChess.move(s) } catch {} }
+            if (freshChess.fen() !== fenAfterOur) return  // соперник уже ответил — не кликаем
+
+            await page.waitForTimeout(80 + Math.random() * 200)
+            await clickSquare(page, pmFrom, boardBox, flipped, true)
+            await page.waitForTimeout(30 + Math.random() * 50)
+            await clickSquare(page, pmTo, boardBox, flipped, true)
+            console.log(`[премув] ${pmFrom}→${pmTo}`)
           } catch { /* позиция невалидна — пропускаем */ } finally {
-            DEPTH = origDepth  // всегда восстанавливаем, даже если было исключение
+            DEPTH = origDepth
+            SKILL = origSkill
           }
         }
       }
