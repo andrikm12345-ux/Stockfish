@@ -774,7 +774,7 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
       await detectGameType(page)
       console.log(`Играю за: ${myColor === 'w' ? '♔ Белых' : '♚ Чёрных'} | Depth:${DEPTH} Skill:${SKILL}${AUTO_DEPTH ? ' [авто]' : ''}`)
 
-      let lastFen = ''
+      let lastMoveCount = -1
       let fastStreakLeft = 0  // сколько ходов ещё в "быстрой серии"
 
       // Игровой цикл
@@ -793,15 +793,15 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
         const chess = new Chess()
         for (const san of sanMoves) { try { chess.move(san) } catch {} }
 
-        const fen = chess.fen()
-        if (fen === lastFen) continue
-        lastFen = fen
+        const moveCount = chess.history().length
+        if (moveCount === lastMoveCount) continue
+        lastMoveCount = moveCount
 
         if (chess.turn() !== myColor) continue
         if (chess.isGameOver()) break
 
         // Гипер-турбо: у нас осталось 1–2 фигуры (голый король или король + 1)
-        const boardPart = fen.split(' ')[0]
+        const boardPart = chess.fen().split(' ')[0]
         const ourPieceCount = myColor === 'w'
           ? (boardPart.match(/[KQRBNP]/g) || []).length
           : (boardPart.match(/[kqrbnp]/g) || []).length
@@ -877,7 +877,7 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
           process.stdout.write(`Ход ${moveNum} ${tag} | Думаю... `)
           const t0 = Date.now()
           // isLongThink → suboptimal=false, lateGame=false (всегда лучший ход)
-          const uciMove = await engine.getBestMove(fen, inStreak, !isLongThink && isLateGame)
+          const uciMove = await engine.getBestMove(chess.fen(), inStreak, !isLongThink && isLateGame)
           ms = Date.now() - t0
           DEPTH = origDepth
           if (!uciMove) { console.log('(нет хода)'); continue }
@@ -963,11 +963,9 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
             const pmFrom = pmMove.slice(0, 2)
             const pmTo   = pmMove.slice(2, 4)
 
-            // Проверка гонки: соперник мог уже сыграть пока мы считали
+            // Проверка гонки: если соперник уже ответил — не кликаем
             const freshState = await readState(page)
-            const freshChess = new Chess()
-            for (const s of freshState.sanMoves) { try { freshChess.move(s) } catch {} }
-            if (freshChess.fen() !== fenAfterOur) return  // соперник уже ответил — не кликаем
+            if (freshState.sanMoves.length > sanMoves.length + 1) return
 
             await page.waitForTimeout(80 + Math.random() * 200)
             await clickSquare(page, pmFrom, boardBox, flipped, true)
