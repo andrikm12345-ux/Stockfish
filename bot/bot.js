@@ -548,13 +548,13 @@ async function thinkingWander(page, boardBox, durationMs, skipWander, canTabSwit
   }
 
   // Переключение вкладки: только в блице/рапиде, долгая дума, 35% шанс
-  let tabSwitchDone = false
   if (canTabSwitch && durationMs > 8000 && Math.random() < 0.35) {
     const waitBefore = 1000 + Math.random() * 2000
     await page.waitForTimeout(waitBefore)
+    const t0 = Date.now()
     await simulateTabSwitch(page)
-    tabSwitchDone = true
-    const remaining = durationMs - waitBefore - 7000
+    const tabDuration = Date.now() - t0
+    const remaining = durationMs - waitBefore - tabDuration
     if (remaining > 0) await page.waitForTimeout(remaining)
     return
   }
@@ -593,17 +593,21 @@ async function clickSquare(page, square, boardBox, isFlipped, turbo = false) {
   const x    = boardBox.x + (isFlipped ? (7 - file) : file) * sz + sz / 2
   const y    = boardBox.y + (isFlipped ? rank : (7 - rank)) * sz + sz / 2
 
+  // Если мышь ещё не инициализирована — стартуем от случайной точки около цели
+  const fromX = mousePos.x || x + (Math.random() - 0.5) * sz * 3
+  const fromY = mousePos.y || y + (Math.random() - 0.5) * sz * 3
+
   // В турбо-режиме — только прямой клик, без движений
   if (!turbo && Math.random() < 0.60) {
     const dx = (Math.random() < 0.5 ? -1 : 1) * (0.6 + Math.random() * 0.9)
     const dy = (Math.random() < 0.5 ? -1 : 1) * (0.6 + Math.random() * 0.9)
     const hoverX = Math.max(boardBox.x + sz * 0.1, Math.min(boardBox.x + boardBox.width  - sz * 0.1, x + dx * sz))
     const hoverY = Math.max(boardBox.y + sz * 0.1, Math.min(boardBox.y + boardBox.height - sz * 0.1, y + dy * sz))
-    await moveMousaBezier(page, mousePos.x, mousePos.y, hoverX, hoverY)
+    await moveMousaBezier(page, fromX, fromY, hoverX, hoverY)
     await page.waitForTimeout(70 + Math.random() * 180)
     await moveMousaBezier(page, hoverX, hoverY, x, y)
   } else if (!turbo) {
-    await moveMousaBezier(page, mousePos.x, mousePos.y, x, y)
+    await moveMousaBezier(page, fromX, fromY, x, y)
   }
   await page.waitForTimeout(turbo ? 5 + Math.random() * 10 : 25 + Math.random() * 55)
   // 7% шанс слегка промахнуться и поправить — как живой человек
