@@ -536,11 +536,14 @@ async function moveMousaBezier(page, fromX, fromY, toX, toY) {
 async function simulateTabSwitch(page) {
   try {
     const ctx = page.context()
-    const blank = await ctx.newPage()
-    await blank.goto('about:blank')
-    await blank.waitForTimeout(3000 + Math.random() * 4000)
-    await blank.close()
-    await page.bringToFront()
+    const blank = await Promise.race([
+      ctx.newPage(),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('tab timeout')), 3000))
+    ])
+    await blank.goto('about:blank', { timeout: 3000 }).catch(() => {})
+    await blank.waitForTimeout(2000 + Math.random() * 3000)
+    await blank.close().catch(() => {})
+    await page.bringToFront().catch(() => {})
   } catch {}
 }
 
@@ -962,10 +965,6 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
 
             const pmFrom = pmMove.slice(0, 2)
             const pmTo   = pmMove.slice(2, 4)
-
-            // Проверка гонки: если соперник уже ответил — не кликаем
-            const freshState = await readState(page)
-            if (freshState.sanMoves.length > sanMoves.length + 1) return
 
             await page.waitForTimeout(80 + Math.random() * 200)
             await clickSquare(page, pmFrom, boardBox, flipped, true)
