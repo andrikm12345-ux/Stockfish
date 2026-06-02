@@ -963,11 +963,9 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
             const pmFrom = pmMove.slice(0, 2)
             const pmTo   = pmMove.slice(2, 4)
 
-            // Проверка гонки: соперник мог уже сыграть пока мы считали
+            // Проверка гонки: если соперник уже ответил — не кликаем
             const freshState = await readState(page)
-            const freshChess = new Chess()
-            for (const s of freshState.sanMoves) { try { freshChess.move(s) } catch {} }
-            if (freshChess.fen() !== fenAfterOur) return  // соперник уже ответил — не кликаем
+            if (freshState.sanMoves.length > sanMoves.length + 1) return
 
             await page.waitForTimeout(80 + Math.random() * 200)
             await clickSquare(page, pmFrom, boardBox, flipped, true)
