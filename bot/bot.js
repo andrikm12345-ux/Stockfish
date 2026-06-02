@@ -950,7 +950,7 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
 
             // Полная сила для премувов — не зависит от текущих настроек skill/depth
             SKILL = 20
-            DEPTH = Math.max(origDepth, 8)
+            DEPTH = Math.min(origDepth + 2, 20)
 
             const oppMove = await engine.getBestMove(fenAfterOur)
             if (!oppMove || oppMove.length < 4) return
