@@ -428,7 +428,10 @@ async function initMaiaEngine() {
         mSend('stop')
         mSend(`position fen ${fen}`)
         mSend('go nodes 1')
-        setTimeout(() => { if (mBestMoveCb === res) { mBestMoveCb = null; res(null) } }, 5000)
+        const rc = setInterval(() => {
+          if (RESTART && mBestMoveCb === res) { clearInterval(rc); mBestMoveCb = null; res(null) }
+        }, 200)
+        setTimeout(() => { clearInterval(rc); if (mBestMoveCb === res) { mBestMoveCb = null; res(null) } }, 5000)
       })
     },
     quit() { mSend('quit') },
@@ -568,8 +571,14 @@ function startClipboardWatcher(page, isLichess) {
 }
 
 async function waitForGamePage(page, isLichess) {
-  if (isLichess) await page.waitForURL(/lichess\.org\/[a-zA-Z0-9]{8}/, { timeout: 0 })
-  await page.locator(isLichess ? 'cg-board' : '.board').first().waitFor({ timeout: 0 })
+  while (true) {
+    if (RESTART) return
+    try {
+      if (isLichess) await page.waitForURL(/lichess\.org\/[a-zA-Z0-9]{8}/, { timeout: 3000 })
+      await page.locator(isLichess ? 'cg-board' : '.board').first().waitFor({ timeout: 3000 })
+      return
+    } catch {}
+  }
 }
 
 async function openBrowser(siteUrl) {
@@ -732,6 +741,7 @@ async function runSession(engine, maiaEngine, isLichess, siteUrl, boardSel, read
         }
         lastFen = fen
         stuckFen = ''
+        stuckSince = 0
         if (chess.turn() !== myColor) continue
         if (chess.isGameOver()) break
 
