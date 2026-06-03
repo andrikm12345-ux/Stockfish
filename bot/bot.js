@@ -398,7 +398,7 @@ async function initMaiaEngine() {
     mBuf = lines.pop()
     for (const raw of lines) {
       const line = raw.trim()
-      if (line === 'readyok' && mReadyOkCb) { mReadyOkCb(); mReadyOkCb = null }
+      if (line === 'readyok' && mReadyOkCb) { const cb = mReadyOkCb; mReadyOkCb = null; cb(true) }
       if (line.startsWith('bestmove') && mBestMoveCb) {
         const mv = line.split(' ')[1]
         const cb = mBestMoveCb; mBestMoveCb = null
@@ -409,7 +409,16 @@ async function initMaiaEngine() {
   proc.stderr.on('data', () => {})
 
   const mSend = (cmd) => proc.stdin.write(cmd + '\n')
-  await new Promise(r => { mReadyOkCb = r; mSend('uci'); mSend('isready') })
+  const ready = await new Promise(r => {
+    mReadyOkCb = r
+    mSend('uci'); mSend('isready')
+    setTimeout(() => { if (mReadyOkCb) { mReadyOkCb = null; r(false) } }, 20000)
+  })
+  if (!ready) {
+    console.log('lc0 не ответил за 20с — переключаюсь на чистый Stockfish')
+    try { proc.kill() } catch {}
+    return null
+  }
   console.log('Maia (lc0) готова — основной движок\n')
 
   return {
