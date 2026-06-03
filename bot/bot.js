@@ -356,7 +356,73 @@ async function initEngine() {
         setTimeout(() => { clearInterval(restartCheck); if (bestMoveCb === res) { bestMoveCb = null; res(null) } }, 10000)
       })
     },
+    getEval(fen) {
+      return new Promise(res => {
+        multiMoves = {}
+        bestMoveCb = () => res(lastEngineScore)
+        send('stop')
+        send('setoption name Skill Level value 20')
+        send(`position fen ${fen}`)
+        send('go depth 6')
+        const rc = setInterval(() => {
+          if (RESTART && bestMoveCb) { clearInterval(rc); bestMoveCb = null; res(0) }
+        }, 200)
+        setTimeout(() => { clearInterval(rc); if (bestMoveCb) { bestMoveCb = null; res(0) } }, 8000)
+      })
+    },
     quit() { send('quit') },
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Maia (lc0) engine — основной движок, играет человекоподобно (~1900)
+// Требует: lc0.exe + maia-1900.pb.gz в папке бота
+// Если файлы не найдены — автоматически переходим на чистый Stockfish
+// ─────────────────────────────────────────────────────────────────────────────
+async function initMaiaEngine() {
+  const lc0Exe  = path.join(__dirname, 'lc0.exe')
+  const maiaNet = path.join(__dirname, 'maia-1900.pb.gz')
+
+  if (!fs.existsSync(lc0Exe))  { console.log('lc0.exe не найден — режим чистого Stockfish'); return null }
+  if (!fs.existsSync(maiaNet)) { console.log('maia-1900.pb.gz не найден — режим чистого Stockfish'); return null }
+
+  const proc = spawn(lc0Exe, [`--weights=${maiaNet}`])
+  let mBestMoveCb = null
+  let mReadyOkCb  = null
+  let mBuf        = ''
+
+  proc.on('error', (err) => { console.error('Ошибка lc0:', err.message) })
+  proc.stdout.on('data', (data) => {
+    mBuf += data.toString()
+    const lines = mBuf.split('\n')
+    mBuf = lines.pop()
+    for (const raw of lines) {
+      const line = raw.trim()
+      if (line === 'readyok' && mReadyOkCb) { mReadyOkCb(); mReadyOkCb = null }
+      if (line.startsWith('bestmove') && mBestMoveCb) {
+        const mv = line.split(' ')[1]
+        const cb = mBestMoveCb; mBestMoveCb = null
+        cb(mv === '(none)' || !mv ? null : mv)
+      }
+    }
+  })
+  proc.stderr.on('data', () => {})
+
+  const mSend = (cmd) => proc.stdin.write(cmd + '\n')
+  await new Promise(r => { mReadyOkCb = r; mSend('uci'); mSend('isready') })
+  console.log('Maia (lc0) готова — основной движок\n')
+
+  return {
+    getBestMove(fen) {
+      return new Promise(res => {
+        mBestMoveCb = res
+        mSend('stop')
+        mSend(`position fen ${fen}`)
+        mSend('go nodes 1')
+        setTimeout(() => { if (mBestMoveCb === res) { mBestMoveCb = null; res(null) } }, 5000)
+      })
+    },
+    quit() { mSend('quit') },
   }
 }
 
@@ -553,7 +619,45 @@ async function openBrowser(siteUrl) {
   return { browser, page }
 }
 
-async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
+// ─────────────────────────────────────────────────────────────────────────────
+// Комбо-ход: Maia делает ходы, Stockfish страхует от зевков (порог >400cp)
+// Если maiaEngine = null — работает как чистый Stockfish (без изменений)
+// ─────────────────────────────────────────────────────────────────────────────
+async function getComboMove(fen, sfEngine, maiaEngine, suboptimal, lateGame) {
+  if (!maiaEngine) {
+    const uciMove = await sfEngine.getBestMove(fen, suboptimal, lateGame)
+    return { uciMove, source: 'sf' }
+  }
+
+  // Maia и SF думают параллельно (разные процессы — нет конфликтов)
+  const [maiaMove, sfMove] = await Promise.all([
+    maiaEngine.getBestMove(fen),
+    sfEngine.getBestMove(fen, false, false),
+  ])
+  const evalBefore = lastEngineScore  // оценка SF до хода Maia (наша сторона, +хорошо нам)
+
+  if (!maiaMove) return { uciMove: sfMove, source: 'sf' }
+
+  // Одинаковый ход у обоих — проверка не нужна
+  if (maiaMove === sfMove) return { uciMove: maiaMove, source: 'maia' }
+
+  // Применяем ход Maia и просим SF оценить получившуюся позицию
+  const testChess = new Chess(fen)
+  let applied = null
+  try { applied = testChess.move({ from: maiaMove.slice(0,2), to: maiaMove.slice(2,4), promotion: maiaMove[4] || 'q' }) } catch {}
+  if (!applied) return { uciMove: sfMove, source: 'sf' }
+
+  const evalAfterMaia = await sfEngine.getEval(testChess.fen())
+  // evalBefore: наша перспектива   (+хорошо нам)
+  // evalAfterMaia: перспектива соперника (+хорошо им = плохо нам)
+  // Падение нашей оценки = evalBefore + evalAfterMaia
+  const drop = evalBefore + evalAfterMaia
+
+  if (drop > 400) return { uciMove: sfMove, source: 'sf-override' }
+  return { uciMove: maiaMove, source: 'maia' }
+}
+
+async function runSession(engine, maiaEngine, isLichess, siteUrl, boardSel, readState) {
   const { browser, page } = await openBrowser(siteUrl)
   console.log(`\nБраузер открыт: ${siteUrl}`)
   console.log('Скопируй ссылку на игру — бот перейдёт автоматически.\n')
@@ -653,7 +757,7 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
         const inStreak = !book && !isLongThink && errorStreakLeft > 0
         if (inStreak) errorStreakLeft--
 
-        let from, to, promo, tag, ms = 0
+        let from, to, promo, tag, ms = 0, logTag = ''
         if (book) {
           from = book.from; to = book.to; promo = book.promotion || null
           tag = currentOpeningName ? `[книга: ${currentOpeningName}]` : '[книга]'
@@ -662,15 +766,21 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
           const origDepth = DEPTH
           if (isLongThink) DEPTH = Math.min(DEPTH + 1, 20)
           else if (isComplex && Math.random() < 0.30) DEPTH = Math.max(1, DEPTH - 2)
-          const modeTag = isLongThink ? '★' : inStreak ? '⚡' : isComplex && DEPTH < origDepth ? '~' : ''
-          tag = isFast ? `[быстро d${DEPTH}]` : `[d${DEPTH}s${SKILL}${modeTag}]`
-          process.stdout.write(`Ход ${moveNum} ${tag} | Думаю... `)
+
+          process.stdout.write(`Ход ${moveNum} | Думаю... `)
           const t0 = Date.now()
-          const uciMove = await engine.getBestMove(fen, inStreak, !isLongThink && isLateGame)
+          const combo = await getComboMove(fen, engine, maiaEngine, inStreak, !isLongThink && isLateGame)
           ms = Date.now() - t0
           DEPTH = origDepth
+          const uciMove = combo.uciMove
           if (!uciMove) { console.log('(нет хода)'); continue }
           from = uciMove.slice(0, 2); to = uciMove.slice(2, 4); promo = uciMove[4] || null
+
+          const modeTag = isLongThink ? '★' : inStreak ? '⚡' : isComplex && DEPTH < origDepth ? '~' : ''
+          tag = maiaEngine
+            ? (combo.source === 'sf-override' ? `[maia→SF d${DEPTH}]` : `[maia d${DEPTH}]`)
+            : (isFast ? `[быстро d${DEPTH}]` : `[d${DEPTH}s${SKILL}${modeTag}]`)
+          logTag = tag + ' '
         }
 
         const effTag  = (secs !== null && Math.abs(effSecs - secs) >= 2) ? ` (эфф ${Math.round(effSecs)}с)` : ''
@@ -678,7 +788,7 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
           ? `, ${Math.round(secs)}с${effTag}${oppSecs !== null ? ` | opp ${Math.round(oppSecs)}с` : ''}`
           : ''
         const extraTags = [fatigueGamesLeft > 0 ? '[устал]' : '', isLongThink ? '[★]' : ''].filter(Boolean).join(' ')
-        console.log(`${from}→${to} (${ms ? `${ms}мс думал, ` : ''}${Math.round(delay)}мс пауза${timeInfo}${extraTags ? ' ' + extraTags : ''})`)
+        console.log(`${logTag}${from}→${to} (${ms ? `${ms}мс думал, ` : ''}${Math.round(delay)}мс пауза${timeInfo}${extraTags ? ' ' + extraTags : ''})`)
 
         if (!book && isBulletGame && secs !== null && secs < 10 && timeDelta < -3 && lastEngineScore < 100 && Math.random() < 0.08) {
           console.log(`(флаг — наше ${Math.round(secs)}с | opp ${Math.round(oppSecs ?? 0)}с | Δ${Math.round(timeDelta)}с)`)
@@ -760,10 +870,11 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
 }
 
 async function main() {
-  console.log('╔════════════════════════════════════╗')
-  console.log('║      Stockfish 18 Chess Bot        ║')
-  console.log(`║  Depth: ${String(DEPTH).padEnd(4)} Skill: ${String(SKILL).padEnd(4)} Opening: ${OPENING_MOVES}ходов ║`)
-  console.log('╚════════════════════════════════════╝\n')
+  console.log('╔══════════════════════════════════════════╗')
+  console.log('║       Combo Engine Chess Bot (v2)        ║')
+  console.log('║  Maia (основной) + Stockfish (страховка) ║')
+  console.log(`║  Depth: ${String(DEPTH).padEnd(4)} Skill: ${String(SKILL).padEnd(4)} Opening: ${OPENING_MOVES}ходов     ║`)
+  console.log('╚══════════════════════════════════════════╝\n')
 
   const isLichess = SITE === 'lichess'
   const siteUrl   = isLichess ? 'https://lichess.org' : 'https://www.chess.com'
@@ -773,11 +884,12 @@ async function main() {
   console.log('Нажми ENTER для запуска...')
   await new Promise(r => process.stdin.once('data', r))
 
+  const maiaEngine = await initMaiaEngine()
   const engine = await initEngine()
 
   while (true) {
     try {
-      await runSession(engine, isLichess, siteUrl, boardSel, readState)
+      await runSession(engine, maiaEngine, isLichess, siteUrl, boardSel, readState)
     } catch (err) {
       if (err.message?.includes('closed') || err.message?.includes('Target page')) {
         console.log('\nБраузер закрыт — перезапускаю через 3 сек...')
