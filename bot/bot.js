@@ -356,14 +356,14 @@ async function initEngine() {
         setTimeout(() => { clearInterval(restartCheck); if (bestMoveCb === res) { bestMoveCb = null; res(null) } }, 10000)
       })
     },
-    getEval(fen) {
+    getEval(fen, depth = 6) {
       return new Promise(res => {
         multiMoves = {}
         bestMoveCb = () => res(lastEngineScore)
         send('stop')
         send('setoption name Skill Level value 20')
         send(`position fen ${fen}`)
-        send('go depth 6')
+        send(`go depth ${depth}`)
         const rc = setInterval(() => {
           if (RESTART && bestMoveCb) { clearInterval(rc); bestMoveCb = null; res(0) }
         }, 200)
@@ -647,7 +647,7 @@ async function getComboMove(fen, sfEngine, maiaEngine, suboptimal, lateGame) {
   try { applied = testChess.move({ from: maiaMove.slice(0,2), to: maiaMove.slice(2,4), promotion: maiaMove[4] || 'q' }) } catch {}
   if (!applied) return { uciMove: sfMove, source: 'sf' }
 
-  const evalAfterMaia = await sfEngine.getEval(testChess.fen())
+  const evalAfterMaia = await sfEngine.getEval(testChess.fen(), isBulletGame ? 3 : 6)
   // evalBefore: наша перспектива   (+хорошо нам)
   // evalAfterMaia: перспектива соперника (+хорошо им = плохо нам)
   // Падение нашей оценки = evalBefore + evalAfterMaia
