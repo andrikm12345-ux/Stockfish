@@ -536,11 +536,14 @@ async function moveMousaBezier(page, fromX, fromY, toX, toY) {
 async function simulateTabSwitch(page) {
   try {
     const ctx = page.context()
-    const blank = await ctx.newPage()
-    await blank.goto('about:blank')
-    await blank.waitForTimeout(3000 + Math.random() * 4000)
-    await blank.close()
-    await page.bringToFront()
+    const blank = await Promise.race([
+      ctx.newPage(),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('tab timeout')), 3000))
+    ])
+    await blank.goto('about:blank', { timeout: 3000 }).catch(() => {})
+    await blank.waitForTimeout(2000 + Math.random() * 3000)
+    await blank.close().catch(() => {})
+    await page.bringToFront().catch(() => {})
   } catch {}
 }
 
@@ -774,7 +777,7 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
       await detectGameType(page)
       console.log(`Играю за: ${myColor === 'w' ? '♔ Белых' : '♚ Чёрных'} | Depth:${DEPTH} Skill:${SKILL}${AUTO_DEPTH ? ' [авто]' : ''}`)
 
-      let lastMoveCount = -1
+      let lastFen = ''
       let fastStreakLeft = 0  // сколько ходов ещё в "быстрой серии"
 
       // Игровой цикл
@@ -793,15 +796,15 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
         const chess = new Chess()
         for (const san of sanMoves) { try { chess.move(san) } catch {} }
 
-        const moveCount = chess.history().length
-        if (moveCount === lastMoveCount) continue
-        lastMoveCount = moveCount
+        const fen = chess.fen()
+        if (fen === lastFen) continue
+        lastFen = fen
 
         if (chess.turn() !== myColor) continue
         if (chess.isGameOver()) break
 
         // Гипер-турбо: у нас осталось 1–2 фигуры (голый король или король + 1)
-        const boardPart = chess.fen().split(' ')[0]
+        const boardPart = fen.split(' ')[0]
         const ourPieceCount = myColor === 'w'
           ? (boardPart.match(/[KQRBNP]/g) || []).length
           : (boardPart.match(/[kqrbnp]/g) || []).length
@@ -877,7 +880,7 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
           process.stdout.write(`Ход ${moveNum} ${tag} | Думаю... `)
           const t0 = Date.now()
           // isLongThink → suboptimal=false, lateGame=false (всегда лучший ход)
-          const uciMove = await engine.getBestMove(chess.fen(), inStreak, !isLongThink && isLateGame)
+          const uciMove = await engine.getBestMove(fen, inStreak, !isLongThink && isLateGame)
           ms = Date.now() - t0
           DEPTH = origDepth
           if (!uciMove) { console.log('(нет хода)'); continue }
@@ -946,26 +949,22 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
                 if (p && p.type === 'q' && p.color === myColor) ourQueenSq = 'abcdefgh'[f] + (8 - r)
               }
             }
-            if (ourQueenSq && oppMovesCurrent.some(m => m.to === ourQueenSq)) return
+            if (ourQueenSq && oppMovesCurrent.some(m => m.to === ourQueenSq)) throw new Error('skip')
 
             // Полная сила для премувов — не зависит от текущих настроек skill/depth
             SKILL = 20
             DEPTH = isBulletGame ? 3 : 5
 
             const oppMove = await engine.getBestMove(fenAfterOur)
-            if (!oppMove || oppMove.length < 4) return
+            if (!oppMove || oppMove.length < 4) throw new Error('skip')
             const oppApplied = chessAfter.move({ from: oppMove.slice(0,2), to: oppMove.slice(2,4), promotion: 'q' })
-            if (!oppApplied) return
+            if (!oppApplied) throw new Error('skip')
 
             const pmMove = await engine.getBestMove(chessAfter.fen())
-            if (!pmMove || pmMove.length < 4) return
+            if (!pmMove || pmMove.length < 4) throw new Error('skip')
 
             const pmFrom = pmMove.slice(0, 2)
             const pmTo   = pmMove.slice(2, 4)
-
-            // Проверка гонки: если соперник уже ответил — не кликаем
-            const freshState = await readState(page)
-            if (freshState.sanMoves.length > sanMoves.length + 1) return
 
             await page.waitForTimeout(80 + Math.random() * 200)
             await clickSquare(page, pmFrom, boardBox, flipped, true)
