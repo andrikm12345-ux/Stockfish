@@ -868,7 +868,7 @@ async function runSession(engine, maiaEngine, isLichess, siteUrl, boardSel, read
             await clickSquare(page, pmFrom, boardBox, flipped, true)
             await page.waitForTimeout(30 + Math.random() * 50)
             await clickSquare(page, pmTo, boardBox, flipped, true)
-            console.log(`[премув] ${pmFrom}→${pmTo}`)
+            console.log(`[премув SF d${DEPTH} s20] ${pmFrom}→${pmTo}`)
           } catch {} finally { DEPTH = origDepth; SKILL = origSkill }
         }
       }
