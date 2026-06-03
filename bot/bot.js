@@ -581,6 +581,8 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
       let fastStreakLeft = 0
       let currentOpeningName = ''
       let openingLogged = false
+      let stuckFen = ''
+      let stuckSince = 0
 
       while (true) {
         await page.waitForTimeout(250)
@@ -596,8 +598,16 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
         const chess = new Chess()
         for (const san of sanMoves) { try { chess.move(san) } catch {} }
         const fen = chess.fen()
-        if (fen === lastFen) continue
+        if (fen === lastFen) {
+          // Авто-рестарт: ход не зарегистрировался на Lichess за 6 секунд
+          if (chess.turn() === myColor && stuckFen === fen && stuckSince > 0 && Date.now() - stuckSince > 6000) {
+            console.log('[авто-рестарт] Ход не прошёл — перезапуск')
+            RESTART = true
+          }
+          continue
+        }
         lastFen = fen
+        stuckFen = ''
         if (chess.turn() !== myColor) continue
         if (chess.isGameOver()) break
 
@@ -695,6 +705,7 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
         await clickSquare(page, from, boardBox, flipped, turbo)
         await page.waitForTimeout(turbo ? 5 + Math.random() * 10 : pressingOpp ? 20 + Math.random() * 30 : 60 + Math.random() * 80)
         await clickSquare(page, to, boardBox, flipped, turbo)
+        stuckFen = fen; stuckSince = Date.now()  // фиксируем попытку хода
 
         if (promo && boardBox) {
           await page.waitForTimeout(turbo ? 60 + Math.random() * 60 : 250 + Math.random() * 150)
