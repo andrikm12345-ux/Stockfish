@@ -679,7 +679,10 @@ async function runSession(engine, maiaEngine, isLichess, siteUrl, boardSel, read
       const myColor = fl ? 'b' : 'w'
       errorStreakLeft = 0
       await detectGameType(page)
-      console.log(`Играю за: ${myColor === 'w' ? '♔ Белых' : '♚ Чёрных'} | Depth:${DEPTH} Skill:${SKILL}${AUTO_DEPTH ? ' [авто]' : ''}`)
+      const modeInfo = maiaEngine
+        ? `Режим: Maia+SF (SF depth:${DEPTH} — страховка)`
+        : `Depth:${DEPTH} Skill:${SKILL}${AUTO_DEPTH ? ' [авто]' : ''}`
+      console.log(`Играю за: ${myColor === 'w' ? '♔ Белых' : '♚ Чёрных'} | ${modeInfo}`)
 
       let lastFen = ''
       let fastStreakLeft = 0
@@ -751,10 +754,11 @@ async function runSession(engine, maiaEngine, isLichess, siteUrl, boardSel, read
         const isComplex  = legalCount > 32
         const isLateGame = moveNum > 30
 
-        if (!book && !isLongThink && errorStreakLeft <= 0)
+        // Серия ошибок — только в SF режиме, у Maia свои человеческие ошибки
+        if (!maiaEngine && !book && !isLongThink && errorStreakLeft <= 0)
           if (Math.random() < (isLateGame ? 0.09 : 0.05))
             errorStreakLeft = 1 + Math.floor(Math.random() * 2)
-        const inStreak = !book && !isLongThink && errorStreakLeft > 0
+        const inStreak = !maiaEngine && !book && !isLongThink && errorStreakLeft > 0
         if (inStreak) errorStreakLeft--
 
         let from, to, promo, tag, ms = 0, logTag = ''
