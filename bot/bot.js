@@ -600,7 +600,8 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
         const fen = chess.fen()
         if (fen === lastFen) {
           // Авто-рестарт: ход не зарегистрировался на Lichess за 6 секунд
-          if (chess.turn() === myColor && stuckFen === fen && stuckSince > 0 && Date.now() - stuckSince > 6000) {
+          const stuckMs = isBulletGame ? 2000 : gameCategory === 'blitz' ? 4000 : 6000
+          if (chess.turn() === myColor && stuckFen === fen && stuckSince > 0 && Date.now() - stuckSince > stuckMs) {
             console.log('[авто-рестарт] Ход не прошёл — перезапуск')
             RESTART = true
           }
