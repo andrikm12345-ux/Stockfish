@@ -533,23 +533,8 @@ async function moveMousaBezier(page, fromX, fromY, toX, toY) {
   mousePos.x = toX; mousePos.y = toY
 }
 
-// Реальное переключение вкладки — открывает about:blank, ждёт, возвращается
-async function simulateTabSwitch(page) {
-  try {
-    const ctx = page.context()
-    const blank = await Promise.race([
-      ctx.newPage(),
-      new Promise((_, rej) => setTimeout(() => rej(new Error('tab timeout')), 3000))
-    ])
-    await blank.goto('about:blank', { timeout: 3000 }).catch(() => {})
-    await blank.waitForTimeout(2000 + Math.random() * 3000)
-    await blank.close().catch(() => {})
-    await page.bringToFront().catch(() => {})
-  } catch {}
-}
-
 // Мышь блуждает по доске пока бот думает — имитирует человека
-async function thinkingWander(page, boardBox, durationMs, skipWander, canTabSwitch = false) {
+async function thinkingWander(page, boardBox, durationMs, skipWander) {
   if (skipWander || durationMs < 200 || !boardBox) {
     await page.waitForTimeout(durationMs); return
   }
@@ -558,18 +543,6 @@ async function thinkingWander(page, boardBox, durationMs, skipWander, canTabSwit
   const deadline = new Promise(r => setTimeout(r, durationMs + 3000))
 
   const work = async () => {
-    // Переключение вкладки: только в блице/рапиде, долгая дума, 35% шанс
-    if (canTabSwitch && durationMs > 8000 && Math.random() < 0.35) {
-      const waitBefore = 1000 + Math.random() * 2000
-      await page.waitForTimeout(waitBefore)
-      const t0 = Date.now()
-      await simulateTabSwitch(page)
-      const tabDuration = Date.now() - t0
-      const remaining = durationMs - waitBefore - tabDuration
-      if (remaining > 0) await page.waitForTimeout(remaining)
-      return
-    }
-
     const end = Date.now() + durationMs
     let cx = mousePos.x || boardBox.x + boardBox.width / 2
     let cy = mousePos.y || boardBox.y + boardBox.height / 2
@@ -921,9 +894,7 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
         const turbo = hyperTurbo || (effSecs !== null && effSecs < 6)
 
         // Пока ждём — мышь блуждает по доске (кроме турбо)
-        // canTabSwitch: только блиц/рапид + долгая дума
-        const canTabSwitch = isLongThink && !isBulletGame
-        await thinkingWander(page, boardBox, delay, turbo, canTabSwitch)
+        await thinkingWander(page, boardBox, delay, turbo)
 
         await clickSquare(page, from, boardBox, flipped, turbo)
         await page.waitForTimeout(turbo ? 5 + Math.random() * 10 : pressingOpp ? 20 + Math.random() * 30 : 60 + Math.random() * 80)
