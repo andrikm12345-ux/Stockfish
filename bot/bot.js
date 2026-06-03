@@ -749,6 +749,8 @@ async function runSession(engine, maiaEngine, isLichess, siteUrl, boardSel, read
         const ourPieceCount = myColor === 'w'
           ? (boardPart.match(/[KQRBNP]/g) || []).length
           : (boardPart.match(/[kqrbnp]/g) || []).length
+        const totalPieces = (boardPart.match(/[KQRBNPkqrbnp]/g) || []).length
+        const simpleEndgame = totalPieces <= 8
         const hyperTurbo = ourPieceCount <= 2
 
         const moveNum    = Math.ceil(chess.history().length / 2) + 1
@@ -777,6 +779,8 @@ async function runSession(engine, maiaEngine, isLichess, siteUrl, boardSel, read
         let delay, isLongThink = false
         if (hyperTurbo) {
           delay = 5 + Math.random() * 10
+        } else if (simpleEndgame && !book) {
+          delay = 300 + Math.random() * 700
         } else if (book) {
           delay = 200 + Math.random() * 400
         } else if (pressingOpp) {
