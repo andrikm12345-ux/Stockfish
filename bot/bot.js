@@ -810,6 +810,7 @@ async function runSession(engine, maiaEngine, isLichess, siteUrl, boardSel, read
         } else {
           const origDepth = DEPTH
           if (isLongThink) DEPTH = Math.min(DEPTH + 1, 20)
+          else if (simpleEndgame) DEPTH = Math.min(DEPTH, 4)
           else if (isComplex && Math.random() < 0.30) DEPTH = Math.max(1, DEPTH - 2)
 
           process.stdout.write(`Ход ${moveNum} | Думаю... `)
