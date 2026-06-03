@@ -949,19 +949,19 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
                 if (p && p.type === 'q' && p.color === myColor) ourQueenSq = 'abcdefgh'[f] + (8 - r)
               }
             }
-            if (ourQueenSq && oppMovesCurrent.some(m => m.to === ourQueenSq)) return
+            if (ourQueenSq && oppMovesCurrent.some(m => m.to === ourQueenSq)) throw new Error('skip')
 
             // Полная сила для премувов — не зависит от текущих настроек skill/depth
             SKILL = 20
             DEPTH = isBulletGame ? 3 : 5
 
             const oppMove = await engine.getBestMove(fenAfterOur)
-            if (!oppMove || oppMove.length < 4) return
+            if (!oppMove || oppMove.length < 4) throw new Error('skip')
             const oppApplied = chessAfter.move({ from: oppMove.slice(0,2), to: oppMove.slice(2,4), promotion: 'q' })
-            if (!oppApplied) return
+            if (!oppApplied) throw new Error('skip')
 
             const pmMove = await engine.getBestMove(chessAfter.fen())
-            if (!pmMove || pmMove.length < 4) return
+            if (!pmMove || pmMove.length < 4) throw new Error('skip')
 
             const pmFrom = pmMove.slice(0, 2)
             const pmTo   = pmMove.slice(2, 4)
