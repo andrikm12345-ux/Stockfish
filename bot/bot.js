@@ -632,10 +632,19 @@ async function openBrowser(siteUrl) {
 // Комбо-ход: Maia делает ходы, Stockfish страхует от зевков (порог >400cp)
 // Если maiaEngine = null — работает как чистый Stockfish (без изменений)
 // ─────────────────────────────────────────────────────────────────────────────
-async function getComboMove(fen, sfEngine, maiaEngine, suboptimal, lateGame) {
+async function getComboMove(fen, sfEngine, maiaEngine, suboptimal, lateGame, effSecs) {
   if (!maiaEngine) {
     const uciMove = await sfEngine.getBestMove(fen, suboptimal, lateGame)
     return { uciMove, source: 'sf' }
+  }
+
+  // В цейтноте — только Maia без проверки SF (нет времени на getEval)
+  const lowTime = effSecs !== null && effSecs < 8
+  if (lowTime) {
+    const maiaMove = await maiaEngine.getBestMove(fen)
+    if (maiaMove) return { uciMove: maiaMove, source: 'maia' }
+    const sfMove = await sfEngine.getBestMove(fen, false, false)
+    return { uciMove: sfMove, source: 'sf' }
   }
 
   // Maia и SF думают параллельно (разные процессы — нет конфликтов)
@@ -643,23 +652,17 @@ async function getComboMove(fen, sfEngine, maiaEngine, suboptimal, lateGame) {
     maiaEngine.getBestMove(fen),
     sfEngine.getBestMove(fen, false, false),
   ])
-  const evalBefore = lastEngineScore  // оценка SF до хода Maia (наша сторона, +хорошо нам)
+  const evalBefore = lastEngineScore
 
   if (!maiaMove) return { uciMove: sfMove, source: 'sf' }
-
-  // Одинаковый ход у обоих — проверка не нужна
   if (maiaMove === sfMove) return { uciMove: maiaMove, source: 'maia' }
 
-  // Применяем ход Maia и просим SF оценить получившуюся позицию
   const testChess = new Chess(fen)
   let applied = null
   try { applied = testChess.move({ from: maiaMove.slice(0,2), to: maiaMove.slice(2,4), promotion: maiaMove[4] || 'q' }) } catch {}
   if (!applied) return { uciMove: sfMove, source: 'sf' }
 
   const evalAfterMaia = await sfEngine.getEval(testChess.fen(), isBulletGame ? 3 : 6)
-  // evalBefore: наша перспектива   (+хорошо нам)
-  // evalAfterMaia: перспектива соперника (+хорошо им = плохо нам)
-  // Падение нашей оценки = evalBefore + evalAfterMaia
   const drop = evalBefore + evalAfterMaia
 
   if (drop > 400) return { uciMove: sfMove, source: 'sf-override' }
@@ -793,7 +796,7 @@ async function runSession(engine, maiaEngine, isLichess, siteUrl, boardSel, read
 
           process.stdout.write(`Ход ${moveNum} | Думаю... `)
           const t0 = Date.now()
-          const combo = await getComboMove(fen, engine, maiaEngine, inStreak, !isLongThink && isLateGame)
+          const combo = await getComboMove(fen, engine, maiaEngine, inStreak, !isLongThink && isLateGame, effSecs)
           ms = Date.now() - t0
           DEPTH = origDepth
           const uciMove = combo.uciMove
