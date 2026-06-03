@@ -705,7 +705,13 @@ async function runSession(engine, maiaEngine, isLichess, siteUrl, boardSel, read
 
       while (true) {
         await page.waitForTimeout(250)
-        if (RESTART) { RESTART = false; console.log('↺ Цикл перезапущен'); break }
+        if (RESTART) {
+          RESTART = false
+          console.log('↺ Цикл перезапущен — обновляю страницу...')
+          try { await page.reload({ waitUntil: 'domcontentloaded', timeout: 8000 }) } catch {}
+          await page.waitForTimeout(1500)
+          break
+        }
         if (isLichess && !isGameUrl(page.url())) { console.log('Игра окончена (редирект).'); break }
 
         let state
