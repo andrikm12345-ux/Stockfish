@@ -638,9 +638,12 @@ async function getComboMove(fen, sfEngine, maiaEngine, suboptimal, lateGame, eff
     return { uciMove, source: 'sf' }
   }
 
-  // В цейтноте — только Maia без проверки SF (нет времени на getEval)
+  // В сильном цейтноте — быстрая проверка depth 1 (только катастрофы)
+  // При effSecs < 4 — вообще без проверки
   const lowTime = effSecs !== null && effSecs < 8
-  if (lowTime) {
+  const criticalTime = effSecs !== null && effSecs < 4
+
+  if (criticalTime) {
     const maiaMove = await maiaEngine.getBestMove(fen)
     if (maiaMove) return { uciMove: maiaMove, source: 'maia' }
     const sfMove = await sfEngine.getBestMove(fen, false, false)
@@ -662,7 +665,8 @@ async function getComboMove(fen, sfEngine, maiaEngine, suboptimal, lateGame, eff
   try { applied = testChess.move({ from: maiaMove.slice(0,2), to: maiaMove.slice(2,4), promotion: maiaMove[4] || 'q' }) } catch {}
   if (!applied) return { uciMove: sfMove, source: 'sf' }
 
-  const evalAfterMaia = await sfEngine.getEval(testChess.fen(), isBulletGame ? 3 : 6)
+  const evalDepth = lowTime ? 1 : isBulletGame ? 3 : 6
+  const evalAfterMaia = await sfEngine.getEval(testChess.fen(), evalDepth)
   const drop = evalBefore + evalAfterMaia
 
   if (drop > 400) return { uciMove: sfMove, source: 'sf-override' }
