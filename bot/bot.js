@@ -72,51 +72,51 @@ const OPENING_MOVES = 10
 // ─────────────────────────────────────────────────────────────────────────────
 const OPENINGS = [
   // ── Испанская (Ruy Lopez) ─────────────────────────────────────────────────
-  ['e4','e5','Nf3','Nc6','Bb5','a6','Ba4','Nf6','O-O','Be7','Re1','b5','Bb3','d6','c3','O-O'],
-  ['e4','e5','Nf3','Nc6','Bb5','Nf6','O-O','Nxe4','d4','Nd6','Bxc6','dxc6','dxe5','Nf5'],
-  ['e4','e5','Nf3','Nc6','Bb5','a6','Ba4','Nf6','O-O','Be7','Re1','b5','Bb3','d6','c3','Na5','Bc2','c5','d4','Qc7'],
+  { name: 'Испанская (закрытый вариант)',    moves: ['e4','e5','Nf3','Nc6','Bb5','a6','Ba4','Nf6','O-O','Be7','Re1','b5','Bb3','d6','c3','O-O'] },
+  { name: 'Испанская (берлинская защита)',   moves: ['e4','e5','Nf3','Nc6','Bb5','Nf6','O-O','Nxe4','d4','Nd6','Bxc6','dxc6','dxe5','Nf5'] },
+  { name: 'Испанская (вариант Чигорина)',    moves: ['e4','e5','Nf3','Nc6','Bb5','a6','Ba4','Nf6','O-O','Be7','Re1','b5','Bb3','d6','c3','Na5','Bc2','c5','d4','Qc7'] },
   // ── Итальянская ───────────────────────────────────────────────────────────
-  ['e4','e5','Nf3','Nc6','Bc4','Bc5','c3','Nf6','d3','d6','O-O','O-O','Re1','a6'],
-  ['e4','e5','Nf3','Nc6','Bc4','Nf6','d3','Be7','O-O','O-O','Re1','d6','a4','Nd4'],
-  ['e4','e5','Nf3','Nc6','Bc4','Bc5','b4','Bxb4','c3','Be7','d4','exd4','O-O','Nf6'],
+  { name: 'Итальянская (джуоко пьяно)',      moves: ['e4','e5','Nf3','Nc6','Bc4','Bc5','c3','Nf6','d3','d6','O-O','O-O','Re1','a6'] },
+  { name: 'Итальянская партия',              moves: ['e4','e5','Nf3','Nc6','Bc4','Nf6','d3','Be7','O-O','O-O','Re1','d6','a4','Nd4'] },
+  { name: 'Гамбит Эванса',                  moves: ['e4','e5','Nf3','Nc6','Bc4','Bc5','b4','Bxb4','c3','Be7','d4','exd4','O-O','Nf6'] },
   // ── Сицилианская ──────────────────────────────────────────────────────────
-  ['e4','c5','Nf3','d6','d4','cxd4','Nxd4','Nf6','Nc3','a6','Be2','e5','Nb3','Be7'],
-  ['e4','c5','Nf3','d6','d4','cxd4','Nxd4','Nf6','Nc3','g6','Be3','Bg7','f3','O-O','Qd2','Nc6'],
-  ['e4','c5','Nf3','e6','d4','cxd4','Nxd4','Nf6','Nc3','d6','Be2','Be7','O-O','O-O','f4','Nc6'],
-  ['e4','c5','Nf3','Nc6','d4','cxd4','Nxd4','e5','Nb5','d6','c4','Be7','Be3','Nf6','Nc3','O-O'],
-  ['e4','c5','Nf3','e6','d4','cxd4','Nxd4','a6','Nc3','Qc7','Be2','Nf6','O-O','Bb4','f4','Nc6'],
-  ['e4','c5','Nf3','e6','d4','cxd4','Nxd4','Nc6','Nc3','Qc7','Be3','a6','Bd3','b5','O-O','Bb7'],
+  { name: 'Сицилианская (Найдорф)',          moves: ['e4','c5','Nf3','d6','d4','cxd4','Nxd4','Nf6','Nc3','a6','Be2','e5','Nb3','Be7'] },
+  { name: 'Сицилианская (дракон)',           moves: ['e4','c5','Nf3','d6','d4','cxd4','Nxd4','Nf6','Nc3','g6','Be3','Bg7','f3','O-O','Qd2','Nc6'] },
+  { name: 'Сицилианская (шевенинген)',       moves: ['e4','c5','Nf3','e6','d4','cxd4','Nxd4','Nf6','Nc3','d6','Be2','Be7','O-O','O-O','f4','Nc6'] },
+  { name: 'Сицилианская (Свешников)',        moves: ['e4','c5','Nf3','Nc6','d4','cxd4','Nxd4','e5','Nb5','d6','c4','Be7','Be3','Nf6','Nc3','O-O'] },
+  { name: 'Сицилианская (Паулсен-Кан)',      moves: ['e4','c5','Nf3','e6','d4','cxd4','Nxd4','a6','Nc3','Qc7','Be2','Nf6','O-O','Bb4','f4','Nc6'] },
+  { name: 'Сицилианская (Тайманов)',         moves: ['e4','c5','Nf3','e6','d4','cxd4','Nxd4','Nc6','Nc3','Qc7','Be3','a6','Bd3','b5','O-O','Bb7'] },
   // ── Французская ───────────────────────────────────────────────────────────
-  ['e4','e6','d4','d5','Nc3','Nf6','Bg5','Be7','e5','Nfd7','Bxe7','Qxe7'],
-  ['e4','e6','d4','d5','e5','c5','c3','Nc6','Nf3','Qb6','Be2','cxd4','cxd4','Nh6'],
-  ['e4','e6','d4','d5','Nd2','Nf6','e5','Nfd7','Bd3','c5','c3','Nc6','Ne2','cxd4','cxd4','f6'],
+  { name: 'Французская (классическая)',      moves: ['e4','e6','d4','d5','Nc3','Nf6','Bg5','Be7','e5','Nfd7','Bxe7','Qxe7'] },
+  { name: 'Французская (продвижение)',       moves: ['e4','e6','d4','d5','e5','c5','c3','Nc6','Nf3','Qb6','Be2','cxd4','cxd4','Nh6'] },
+  { name: 'Французская (Тарраш)',            moves: ['e4','e6','d4','d5','Nd2','Nf6','e5','Nfd7','Bd3','c5','c3','Nc6','Ne2','cxd4','cxd4','f6'] },
   // ── Каро-Канн ─────────────────────────────────────────────────────────────
-  ['e4','c6','d4','d5','Nc3','dxe4','Nxe4','Bf5','Ng3','Bg6','h4','h6'],
-  ['e4','c6','d4','d5','e5','Bf5','Nf3','e6','Be2','Ne7','O-O','c5','c3','Nbc6'],
+  { name: 'Каро-Канн (классическая)',        moves: ['e4','c6','d4','d5','Nc3','dxe4','Nxe4','Bf5','Ng3','Bg6','h4','h6'] },
+  { name: 'Каро-Канн (продвижение)',         moves: ['e4','c6','d4','d5','e5','Bf5','Nf3','e6','Be2','Ne7','O-O','c5','c3','Nbc6'] },
   // ── Ферзевый гамбит ───────────────────────────────────────────────────────
-  ['d4','d5','c4','e6','Nc3','Nf6','Bg5','Be7','e3','O-O','Nf3','h6'],
-  ['d4','d5','c4','dxc4','Nf3','Nf6','e3','e6','Bxc4','c5','O-O','a6','Qe2','b5','Bb3','Bb7'],
-  ['d4','d5','c4','e6','Nc3','Nf6','cxd5','exd5','Bg5','Be7','e3','O-O','Bd3','Nbd7','Qc2','Re8'],
+  { name: 'Ферзевый гамбит (ортодокс)',      moves: ['d4','d5','c4','e6','Nc3','Nf6','Bg5','Be7','e3','O-O','Nf3','h6'] },
+  { name: 'Ферзевый гамбит (принят)',        moves: ['d4','d5','c4','dxc4','Nf3','Nf6','e3','e6','Bxc4','c5','O-O','a6','Qe2','b5','Bb3','Bb7'] },
+  { name: 'Ферзевый гамбит (разменный)',     moves: ['d4','d5','c4','e6','Nc3','Nf6','cxd5','exd5','Bg5','Be7','e3','O-O','Bd3','Nbd7','Qc2','Re8'] },
   // ── Индийские ─────────────────────────────────────────────────────────────
-  ['d4','Nf6','c4','g6','Nc3','Bg7','e4','d6','Nf3','O-O','Be2','e5','O-O','Nc6','d5','Ne7'],
-  ['d4','Nf6','c4','e6','Nc3','Bb4','e3','O-O','Bd3','d5','Nf3','c5','O-O','dxc4','Bxc4','Nbd7'],
-  ['d4','Nf6','c4','e6','Nf3','b6','g3','Bb7','Bg2','Be7','O-O','O-O','Nc3','Ne4','Qc2','Nxc3'],
-  ['d4','Nf6','c4','g6','Nc3','d5','cxd5','Nxd5','e4','Nxc3','bxc3','Bg7','Nf3','c5','Be3','Qa5'],
-  ['d4','Nf6','c4','c5','d5','e6','Nc3','exd5','cxd5','d6','e4','g6','Nf3','Bg7','Be2','O-O'],
+  { name: 'Королевско-индийская защита',     moves: ['d4','Nf6','c4','g6','Nc3','Bg7','e4','d6','Nf3','O-O','Be2','e5','O-O','Nc6','d5','Ne7'] },
+  { name: 'Нимцо-индийская защита',          moves: ['d4','Nf6','c4','e6','Nc3','Bb4','e3','O-O','Bd3','d5','Nf3','c5','O-O','dxc4','Bxc4','Nbd7'] },
+  { name: 'Ферзевая индийская защита',       moves: ['d4','Nf6','c4','e6','Nf3','b6','g3','Bb7','Bg2','Be7','O-O','O-O','Nc3','Ne4','Qc2','Nxc3'] },
+  { name: 'Защита Грюнфельда',               moves: ['d4','Nf6','c4','g6','Nc3','d5','cxd5','Nxd5','e4','Nxc3','bxc3','Bg7','Nf3','c5','Be3','Qa5'] },
+  { name: 'Защита Бенони',                   moves: ['d4','Nf6','c4','c5','d5','e6','Nc3','exd5','cxd5','d6','e4','g6','Nf3','Bg7','Be2','O-O'] },
   // ── Другие дебюты ─────────────────────────────────────────────────────────
-  ['c4','e5','Nc3','Nf6','Nf3','Nc6','g3','d5','cxd5','Nxd5','Bg2','Nb6'],
-  ['d4','d5','c4','c6','Nf3','Nf6','Nc3','dxc4','a4','Bf5','e3','e6'],
-  ['e4','d5','exd5','Qxd5','Nc3','Qa5','d4','Nf6','Nf3','c6','Bc4','Bf5'],
-  ['d4','Nf6','c4','e6','g3','d5','Bg2','Be7','Nf3','O-O','O-O','dxc4','Qc2','a6','Qxc4','b5'],
-  ['d4','d5','Nf3','Nf6','Bf4','e6','e3','Bd6','Bg3','O-O','Nbd2','c5','c3','Nc6','Bd3','Bxg3'],
-  ['Nf3','d5','g3','Nf6','Bg2','c6','O-O','Bg4','d3','e6','Nbd2','Be7','e4','dxe4','dxe4','O-O'],
-  ['e4','e5','Nf3','Nf6','Nxe5','d6','Nf3','Nxe4','d4','d5','Bd3','Nc6','O-O','Be7','Re1','Bg4'],
-  ['e4','d6','d4','Nf6','Nc3','g6','Nf3','Bg7','Be2','O-O','O-O','c6','Bg5','b5','Bb3','Bb7'],
-  ['e4','Nf6','e5','Nd5','d4','d6','Nf3','Bg4','Be2','e6','O-O','Be7','c4','Nb6','exd6','cxd6'],
-  ['e4','e5','Nc3','Nf6','Bc4','Nc6','d3','Bb4','Nge2','d5','exd5','Nxd5','O-O','Be6'],
-  ['d4','f5','Nf3','Nf6','g3','e6','Bg2','d5','O-O','Bd6','c4','c6','b3','Qe7','Bb2','O-O'],
-  ['e4','e5','Nf3','Nc6','Nc3','Nf6','Bb5','Bb4','O-O','O-O','d3','d6','Bg5','Bxc3','bxc3','Ne7'],
-  ['e4','g6','d4','Bg7','Nc3','d6','Nf3','Nf6','Be2','O-O','O-O','c6','h3','b5','Re1','Bb7'],
+  { name: 'Английское начало',               moves: ['c4','e5','Nc3','Nf6','Nf3','Nc6','g3','d5','cxd5','Nxd5','Bg2','Nb6'] },
+  { name: 'Славянская защита',               moves: ['d4','d5','c4','c6','Nf3','Nf6','Nc3','dxc4','a4','Bf5','e3','e6'] },
+  { name: 'Скандинавская защита',            moves: ['e4','d5','exd5','Qxd5','Nc3','Qa5','d4','Nf6','Nf3','c6','Bc4','Bf5'] },
+  { name: 'Каталонское начало',              moves: ['d4','Nf6','c4','e6','g3','d5','Bg2','Be7','Nf3','O-O','O-O','dxc4','Qc2','a6','Qxc4','b5'] },
+  { name: 'Лондонская система',              moves: ['d4','d5','Nf3','Nf6','Bf4','e6','e3','Bd6','Bg3','O-O','Nbd2','c5','c3','Nc6','Bd3','Bxg3'] },
+  { name: 'Дебют Рети',                      moves: ['Nf3','d5','g3','Nf6','Bg2','c6','O-O','Bg4','d3','e6','Nbd2','Be7','e4','dxe4','dxe4','O-O'] },
+  { name: 'Защита Петрова',                  moves: ['e4','e5','Nf3','Nf6','Nxe5','d6','Nf3','Nxe4','d4','d5','Bd3','Nc6','O-O','Be7','Re1','Bg4'] },
+  { name: 'Защита Пирца',                    moves: ['e4','d6','d4','Nf6','Nc3','g6','Nf3','Bg7','Be2','O-O','O-O','c6','Bg5','b5','Bb3','Bb7'] },
+  { name: 'Защита Алехина',                  moves: ['e4','Nf6','e5','Nd5','d4','d6','Nf3','Bg4','Be2','e6','O-O','Be7','c4','Nb6','exd6','cxd6'] },
+  { name: 'Венская партия',                  moves: ['e4','e5','Nc3','Nf6','Bc4','Nc6','d3','Bb4','Nge2','d5','exd5','Nxd5','O-O','Be6'] },
+  { name: 'Голландская защита',              moves: ['d4','f5','Nf3','Nf6','g3','e6','Bg2','d5','O-O','Bd6','c4','c6','b3','Qe7','Bb2','O-O'] },
+  { name: 'Испанская (четыре коня)',          moves: ['e4','e5','Nf3','Nc6','Nc3','Nf6','Bb5','Bb4','O-O','O-O','d3','d6','Bg5','Bxc3','bxc3','Ne7'] },
+  { name: 'Современная защита (Пирц-Уфимцев)', moves: ['e4','g6','d4','Bg7','Nc3','d6','Nf3','Nf6','Be2','O-O','O-O','c6','h3','b5','Re1','Bb7'] },
 ]
 
 // Сравниваем позиции по расстановке/очереди/рокировкам/взятию на проходе
@@ -125,12 +125,13 @@ function posKey(fen) {
 }
 
 // Подбираем книжный ход для текущей позиции (или null)
+// Возвращает { move, name } — ход и название дебюта
 function bookMove(chess) {
   const histLen = chess.history().length
   const curKey  = posKey(chess.fen())
   const candidates = []
 
-  for (const line of OPENINGS) {
+  for (const { name, moves: line } of OPENINGS) {
     if (line.length <= histLen) continue
 
     // Проигрываем линию до текущего момента
@@ -145,7 +146,7 @@ function bookMove(chess) {
     // Следующий ход линии — наш книжный ход
     try {
       const mv = test.move(line[histLen])
-      if (mv) candidates.push(mv)
+      if (mv) candidates.push({ move: mv, name })
     } catch { /* пропускаем */ }
   }
 
@@ -779,6 +780,8 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
 
       let lastFen = ''
       let fastStreakLeft = 0  // сколько ходов ещё в "быстрой серии"
+      let currentOpeningName = ''  // имя дебюта из книги
+      let openingLogged = false    // уже показали имя — не дублируем
 
       // Игровой цикл
       while (true) {
@@ -811,8 +814,16 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
         const hyperTurbo = ourPieceCount <= 2
 
         const moveNum  = Math.ceil(chess.history().length / 2) + 1
-        const skipBook = chess.history().length >= 6 && Math.random() < 0.15
-        const book     = skipBook ? null : bookMove(chess)
+        const skipBook   = chess.history().length >= 6 && Math.random() < 0.15
+        const bookResult = skipBook ? null : bookMove(chess)
+        if (bookResult?.name) currentOpeningName = bookResult.name
+        const book = bookResult?.move ?? null
+
+        // Первый выход из книги — сообщаем дебют
+        if (!book && !openingLogged && currentOpeningName) {
+          console.log(`[дебют] ${currentOpeningName}`)
+          openingLogged = true
+        }
 
         // Fast streak: иногда бот "видит план" и режет несколько ходов быстро
         if (!book && fastStreakLeft <= 0 && Math.random() < 0.18) {
@@ -863,7 +874,8 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
         // ── 4. Движок ──────────────────────────────────────────────────────────
         let from, to, promo, tag, ms = 0
         if (book) {
-          from = book.from; to = book.to; promo = book.promotion || null; tag = '[книга]'
+          from = book.from; to = book.to; promo = book.promotion || null
+          tag = currentOpeningName ? `[книга: ${currentOpeningName}]` : '[книга]'
           process.stdout.write(`Ход ${moveNum} ${tag} | `)
         } else {
           const origDepth = DEPTH
