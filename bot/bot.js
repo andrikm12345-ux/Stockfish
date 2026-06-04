@@ -648,17 +648,8 @@ async function getComboMove(fen, sfEngine, maiaEngine, suboptimal, lateGame, eff
     return { uciMove, source: 'sf' }
   }
 
-  // В сильном цейтноте — быстрая проверка depth 1 (только катастрофы)
-  // При effSecs < 4 — вообще без проверки
+  // В любом цейтноте — depth 1 (~5мс), всегда ловим зевок ферзя
   const lowTime = effSecs !== null && effSecs < 8
-  const criticalTime = effSecs !== null && effSecs < 4
-
-  if (criticalTime) {
-    const maiaMove = await maiaEngine.getBestMove(fen)
-    if (maiaMove) return { uciMove: maiaMove, source: 'maia' }
-    const sfMove = await sfEngine.getBestMove(fen, false, false)
-    return { uciMove: sfMove, source: 'sf' }
-  }
 
   // Maia и SF думают параллельно (разные процессы — нет конфликтов)
   const [maiaMove, sfMove] = await Promise.all([
