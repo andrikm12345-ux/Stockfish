@@ -665,7 +665,7 @@ async function openBrowser(siteUrl) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Комбо-ход: Maia делает ходы, Stockfish страхует от зевков (порог >250cp)
+// Комбо-ход: Maia делает ходы, Stockfish страхует от зевков (порог >350cp)
 // Если maiaEngine = null — работает как чистый Stockfish (без изменений)
 // ─────────────────────────────────────────────────────────────────────────────
 async function getComboMove(fen, sfEngine, maiaEngine, suboptimal, lateGame, effSecs) {
@@ -701,7 +701,7 @@ async function getComboMove(fen, sfEngine, maiaEngine, suboptimal, lateGame, eff
 
   console.log(`  [debug] maia=${maiaMove} sf=${sfBest.move} before=${evalBefore} after=${evalAfterMaia} drop=${drop} depth=${checkDepth}`)
 
-  if (drop > 250) return { uciMove: sfBest.move, source: 'sf-override' }
+  if (drop > 350) return { uciMove: sfBest.move, source: 'sf-override' }
   return { uciMove: maiaMove, source: 'maia' }
 }
 
