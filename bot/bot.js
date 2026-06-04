@@ -427,7 +427,8 @@ async function initMaiaEngine() {
         mBestMoveCb = res
         mSend('stop')
         mSend(`position fen ${fen}`)
-        mSend('go nodes 1')
+        const maiaNodes = gameCategory === 'rapid' ? 15 : gameCategory === 'blitz' ? 5 : 1
+        mSend(`go nodes ${maiaNodes}`)
         const rc = setInterval(() => {
           if (RESTART && mBestMoveCb === res) { clearInterval(rc); mBestMoveCb = null; res(null) }
         }, 200)
