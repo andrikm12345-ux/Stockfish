@@ -187,7 +187,7 @@ function humanDelay(remainingSecs, moveNum, isFast, timeDelta = 0) {
     if (remainingSecs < 10) return { ms: 130 + Math.random() * 170, isLongThink: false }
   }
   if (gameCategory === 'bullet') {
-    if (isFast)                  return { ms: 80  + Math.random() * 170, isLongThink: false }
+    if (isFast)                   return { ms: 80  + Math.random() * 170, isLongThink: false }
     if (moveNum <= OPENING_MOVES) return { ms: 250 + Math.random() * 450, isLongThink: false }
     if (remainingSecs !== null) {
       let ms = remainingSecs * (0.008 + Math.random() * 0.015) * 1000
@@ -197,9 +197,10 @@ function humanDelay(remainingSecs, moveNum, isFast, timeDelta = 0) {
       if (Math.random() < thinkChance) { ms *= thinkMult; isLongThink = true }
       return { ms: Math.max(120, Math.min(2000, ms)), isLongThink }
     }
+    return { ms: 200 + Math.random() * 400, isLongThink: false }
   }
   if (gameCategory === 'blitz') {
-    if (isFast)                  return { ms: 200 + Math.random() * 400,  isLongThink: false }
+    if (isFast)                   return { ms: 200 + Math.random() * 400,  isLongThink: false }
     if (moveNum <= OPENING_MOVES) return { ms: 600 + Math.random() * 1200, isLongThink: false }
     if (remainingSecs !== null) {
       let ms = remainingSecs * (0.01 + Math.random() * 0.025) * 1000
@@ -207,9 +208,10 @@ function humanDelay(remainingSecs, moveNum, isFast, timeDelta = 0) {
       if (Math.random() < 0.12) { ms *= 1.2 + Math.random() * 0.5; isLongThink = true }
       return { ms: Math.max(300, Math.min(15000, ms)), isLongThink }
     }
+    return { ms: 500 + Math.random() * 1000, isLongThink: false }
   }
   if (gameCategory === 'rapid') {
-    if (isFast)                  return { ms: 300 + Math.random() * 600,  isLongThink: false }
+    if (isFast)                   return { ms: 300 + Math.random() * 600,  isLongThink: false }
     if (moveNum <= OPENING_MOVES) return { ms: 800 + Math.random() * 2000, isLongThink: false }
     if (remainingSecs !== null) {
       let ms = remainingSecs * (0.015 + Math.random() * 0.03) * 1000
@@ -217,6 +219,7 @@ function humanDelay(remainingSecs, moveNum, isFast, timeDelta = 0) {
       if (Math.random() < 0.18) { ms *= 1.3 + Math.random() * 0.7; isLongThink = true }
       return { ms: Math.max(300, Math.min(25000, ms)), isLongThink }
     }
+    return { ms: 1000 + Math.random() * 2000, isLongThink: false }
   }
   const r = Math.random()
   if (r < 0.15) return { ms: 500  + Math.random() * 1000,  isLongThink: false }
@@ -735,16 +738,17 @@ async function runSession(engine, maiaEngine, isLichess, siteUrl, boardSel, read
       let openingLogged = false
       let stuckFen = ''
       let stuckSince = 0
+      let gameFinished = false
 
       while (true) {
         await page.waitForTimeout(250)
         if (RESTART) { RESTART = false; console.log('↺ Цикл перезапущен'); break }
-        if (isLichess && !isGameUrl(page.url())) { console.log('Игра окончена (редирект).'); break }
+        if (isLichess && !isGameUrl(page.url())) { console.log('Игра окончена (редирект).'); gameFinished = true; break }
 
         let state
         try { state = await readState(page) } catch { break }
         const { sanMoves, isFlipped: flipped, gameOver } = state
-        if (gameOver) { console.log('Игра окончена.'); break }
+        if (gameOver) { console.log('Игра окончена.'); gameFinished = true; break }
         if (PAUSED) continue
 
         const chess = new Chess()
@@ -763,7 +767,7 @@ async function runSession(engine, maiaEngine, isLichess, siteUrl, boardSel, read
         stuckFen = ''
         stuckSince = 0
         if (chess.turn() !== myColor) continue
-        if (chess.isGameOver()) break
+        if (chess.isGameOver()) { gameFinished = true; break }
 
         const boardPart = fen.split(' ')[0]
         const ourPieceCount = myColor === 'w'
@@ -934,19 +938,21 @@ async function runSession(engine, maiaEngine, isLichess, siteUrl, boardSel, read
         }
       }
 
-      gamesPlayed++
-      if (fatigueGamesLeft > 0) fatigueGamesLeft--
-      if (fatigueGamesLeft === 0 && gamesPlayed % (10 + Math.floor(Math.random() * 6)) === 0) {
-        fatigueGamesLeft = 2 + Math.floor(Math.random() * 3)
-        console.log(`[усталость] Замедляюсь на ${fatigueGamesLeft} игры (партия ${gamesPlayed})`)
-      }
+      if (gameFinished) {
+        gamesPlayed++
+        if (fatigueGamesLeft > 0) fatigueGamesLeft--
+        if (fatigueGamesLeft === 0 && gamesPlayed % (10 + Math.floor(Math.random() * 6)) === 0) {
+          fatigueGamesLeft = 2 + Math.floor(Math.random() * 3)
+          console.log(`[усталость] Замедляюсь на ${fatigueGamesLeft} игры (партия ${gamesPlayed})`)
+        }
 
-      const dailyCount = loadDailyCount() + 1
-      saveDailyCount(dailyCount)
-      if (dailyCount === 15)       console.log('\n⚠️  15 партий сегодня. Рекомендую сделать перерыв 15–20 мин.')
-      else if (dailyCount === 20)  console.log('\n🔴  20 партий сегодня — повышенный риск!')
-      else if (dailyCount >= 25)   console.log('\n🔴🔴 25+ партий — СТОП. Очень высокий риск бана.')
-      else                         console.log(`[сегодня: ${dailyCount} партий]`)
+        const dailyCount = loadDailyCount() + 1
+        saveDailyCount(dailyCount)
+        if (dailyCount === 15)       console.log('\n⚠️  15 партий сегодня. Рекомендую сделать перерыв 15–20 мин.')
+        else if (dailyCount === 20)  console.log('\n🔴  20 партий сегодня — повышенный риск!')
+        else if (dailyCount >= 25)   console.log('\n🔴🔴 25+ партий — СТОП. Очень высокий риск бана.')
+        else                         console.log(`[сегодня: ${dailyCount} партий]`)
+      }
 
       await page.waitForTimeout(1500)
     }
