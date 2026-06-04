@@ -330,7 +330,7 @@ async function initEngine() {
         lateGameMode = false
         if (forcePureBest) {
           forcePureBest = false; forceSuboptimal = false
-          cb(best === '(none)' || !best ? null : best)
+          cb({ move: best === '(none)' || !best ? null : best, m2: m2 || null, s2, m3: m3 || null, s3 })
         } else if (forceSuboptimal && !winning && !losing) {
           forceSuboptimal = false
           cb(m3 && Math.random() < 0.4 ? m3 : (m2 || (best === '(none)' ? null : best)))
@@ -385,7 +385,7 @@ async function initEngine() {
     getBest(fen, depth) {
       return new Promise(res => {
         multiMoves = {}; forcePureBest = true
-        bestMoveCb = (mv) => res({ move: mv, score: lastEngineScore })
+        bestMoveCb = (d) => res({ move: d.move, score: lastEngineScore, m2: d.m2, s2: d.s2, m3: d.m3, s3: d.s3 })
         send('stop')
         send('setoption name Skill Level value 20')
         send(`position fen ${fen}`)
@@ -702,6 +702,16 @@ async function getComboMove(fen, sfEngine, maiaEngine, suboptimal, lateGame, eff
   console.log(`  [debug] maia=${maiaMove} sf=${sfBest.move} before=${evalBefore} after=${evalAfterMaia} drop=${drop} depth=${checkDepth}`)
 
   if (drop > 350) return { uciMove: sfBest.move, source: 'sf-override' }
+
+  // Иногда играем m2/m3 вместо хода Maia — имитация человеческих неточностей
+  const inaccRate = gameCategory === 'rapid' ? 0.15 : gameCategory === 'blitz' ? 0.12 : 0
+  if (!lowTime && inaccRate > 0 && Math.random() < inaccRate) {
+    if (sfBest.m3 && (sfBest.score - sfBest.s3) < 250 && Math.random() < 0.30)
+      return { uciMove: sfBest.m3, source: 'sf-mistake' }
+    if (sfBest.m2 && (sfBest.score - sfBest.s2) < 150)
+      return { uciMove: sfBest.m2, source: 'sf-inaccuracy' }
+  }
+
   return { uciMove: maiaMove, source: 'maia' }
 }
 
@@ -849,7 +859,10 @@ async function runSession(engine, maiaEngine, isLichess, siteUrl, boardSel, read
 
           const modeTag = isLongThink ? '★' : inStreak ? '⚡' : depthReduced ? '~' : ''
           tag = maiaEngine
-            ? (combo.source === 'sf-override' ? `[maia→SF d${DEPTH}]` : `[maia d${DEPTH}]`)
+            ? (combo.source === 'sf-override'    ? `[maia→SF d${DEPTH}]`    :
+               combo.source === 'sf-inaccuracy'  ? `[неточность d${DEPTH}]` :
+               combo.source === 'sf-mistake'     ? `[ошибка d${DEPTH}]`     :
+               `[maia d${DEPTH}]`)
             : (isFast ? `[быстро d${DEPTH}]` : `[d${DEPTH}s${SKILL}${modeTag}]`)
           logTag = tag + ' '
         }
