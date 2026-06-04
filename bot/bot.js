@@ -288,7 +288,7 @@ async function detectGameType(page) {
 async function initEngine() {
   const sfExe = path.join(__dirname, 'stockfish.exe')
   const proc  = spawn(sfExe)
-  let bestMoveCb = null, readyOkCb = null, multiMoves = {}, forceSuboptimal = false, lateGameMode = false, buf = ''
+  let bestMoveCb = null, readyOkCb = null, multiMoves = {}, forceSuboptimal = false, lateGameMode = false, forcePureBest = false, buf = ''
 
   proc.on('error', (err) => { console.error('\nНе найден stockfish.exe:', err.message); process.exit(1) })
 
@@ -303,7 +303,11 @@ async function initEngine() {
         const mpM = line.match(/multipv (\d+)/)
         const pvM = line.match(/ pv ([a-h][1-8][a-h][1-8][qrbn]?)/)
         const cpM = line.match(/score cp (-?\d+)/)
-        if (mpM && pvM) multiMoves[parseInt(mpM[1])] = { move: pvM[1], score: cpM ? parseInt(cpM[1]) : 0 }
+        const mateM = line.match(/score mate (-?\d+)/)
+        let sc = 0
+        if (cpM) sc = parseInt(cpM[1])
+        else if (mateM) { const n = parseInt(mateM[1]); sc = n > 0 ? 30000 - n : -30000 - n }
+        if (mpM && pvM) multiMoves[parseInt(mpM[1])] = { move: pvM[1], score: sc }
       }
       if (line.startsWith('bestmove') && bestMoveCb) {
         const best = line.split(' ')[1]
@@ -320,7 +324,10 @@ async function initEngine() {
         const m2chance = lateGameMode ? 0.28 : 0.20
         const m3chance = lateGameMode ? 0.12 : 0.06
         lateGameMode = false
-        if (forceSuboptimal && !winning && !losing) {
+        if (forcePureBest) {
+          forcePureBest = false; forceSuboptimal = false
+          cb(best === '(none)' || !best ? null : best)
+        } else if (forceSuboptimal && !winning && !losing) {
           forceSuboptimal = false
           cb(m3 && Math.random() < 0.4 ? m3 : (m2 || (best === '(none)' ? null : best)))
         } else {
@@ -345,7 +352,7 @@ async function initEngine() {
   return {
     getBestMove(fen, suboptimal = false, lateGame = false) {
       return new Promise(res => {
-        multiMoves = {}; forceSuboptimal = suboptimal; lateGameMode = lateGame; bestMoveCb = res
+        multiMoves = {}; forceSuboptimal = suboptimal; lateGameMode = lateGame; forcePureBest = false; bestMoveCb = res
         send('stop')
         send(`setoption name Skill Level value ${SKILL}`)
         send(`position fen ${fen}`)
@@ -358,7 +365,7 @@ async function initEngine() {
     },
     getEval(fen, depth = 6) {
       return new Promise(res => {
-        multiMoves = {}
+        multiMoves = {}; forcePureBest = false
         bestMoveCb = () => res(lastEngineScore)
         send('stop')
         send('setoption name Skill Level value 20')
@@ -368,6 +375,21 @@ async function initEngine() {
           if (RESTART && bestMoveCb) { clearInterval(rc); bestMoveCb = null; res(0) }
         }, 200)
         setTimeout(() => { clearInterval(rc); if (bestMoveCb) { bestMoveCb = null; res(0) } }, 8000)
+      })
+    },
+    // Чистый лучший ход + оценка (без рандома, скилл 20) — для страховки
+    getBest(fen, depth) {
+      return new Promise(res => {
+        multiMoves = {}; forcePureBest = true
+        bestMoveCb = (mv) => res({ move: mv, score: lastEngineScore })
+        send('stop')
+        send('setoption name Skill Level value 20')
+        send(`position fen ${fen}`)
+        send(depth ? `go depth ${depth}` : engineCmd())
+        const rc = setInterval(() => {
+          if (RESTART && bestMoveCb) { clearInterval(rc); bestMoveCb = null; res({ move: null, score: 0 }) }
+        }, 200)
+        setTimeout(() => { clearInterval(rc); if (bestMoveCb) { bestMoveCb = null; res({ move: null, score: 0 }) } }, 10000)
       })
     },
     quit() { send('quit') },
@@ -648,29 +670,32 @@ async function getComboMove(fen, sfEngine, maiaEngine, suboptimal, lateGame, eff
     return { uciMove, source: 'sf' }
   }
 
-  // В любом цейтноте — depth 1 (~5мс), всегда ловим зевок ферзя
+  // Глубина проверки: цейтнот — мельче, но всегда ≥2 чтобы видеть тактику
   const lowTime = effSecs !== null && effSecs < 8
+  const checkDepth = lowTime ? 2 : isBulletGame ? 4 : 8
 
   // Maia и SF думают параллельно (разные процессы — нет конфликтов)
-  const [maiaMove, sfMove] = await Promise.all([
+  // sfBest = истинно лучший ход SF + оценка позиции ДО хода (наша перспектива)
+  const [maiaMove, sfBest] = await Promise.all([
     maiaEngine.getBestMove(fen),
-    sfEngine.getBestMove(fen, false, false),
+    sfEngine.getBest(fen, checkDepth),
   ])
-  const evalBefore = lastEngineScore
+  const evalBefore = sfBest.score
 
-  if (!maiaMove) return { uciMove: sfMove, source: 'sf' }
-  if (maiaMove === sfMove) return { uciMove: maiaMove, source: 'maia' }
+  if (!maiaMove) return { uciMove: sfBest.move, source: 'sf' }
+  if (maiaMove === sfBest.move) return { uciMove: maiaMove, source: 'maia' }
 
   const testChess = new Chess(fen)
   let applied = null
   try { applied = testChess.move({ from: maiaMove.slice(0,2), to: maiaMove.slice(2,4), promotion: maiaMove[4] || 'q' }) } catch {}
-  if (!applied) return { uciMove: sfMove, source: 'sf' }
+  if (!applied) return { uciMove: sfBest.move, source: 'sf' }
 
-  const evalDepth = lowTime ? 1 : isBulletGame ? 3 : 6
-  const evalAfterMaia = await sfEngine.getEval(testChess.fen(), evalDepth)
+  // Оценка позиции ПОСЛЕ хода Maia (перспектива соперника)
+  const evalAfterMaia = await sfEngine.getEval(testChess.fen(), checkDepth)
+  // Падение нашей оценки = evalBefore + evalAfterMaia (учёт смены стороны)
   const drop = evalBefore + evalAfterMaia
 
-  if (drop > 150) return { uciMove: sfMove, source: 'sf-override' }
+  if (drop > 150) return { uciMove: sfBest.move, source: 'sf-override' }
   return { uciMove: maiaMove, source: 'maia' }
 }
 
