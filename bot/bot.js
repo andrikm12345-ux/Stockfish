@@ -678,7 +678,7 @@ async function getComboMove(fen, sfEngine, maiaEngine, suboptimal, lateGame, eff
   const evalAfterMaia = await sfEngine.getEval(testChess.fen(), evalDepth)
   const drop = evalBefore + evalAfterMaia
 
-  if (drop > 350) return { uciMove: sfMove, source: 'sf-override' }
+  if (drop > 250) return { uciMove: sfMove, source: 'sf-override' }
   return { uciMove: maiaMove, source: 'maia' }
 }
 
