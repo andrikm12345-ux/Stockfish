@@ -877,8 +877,8 @@ async function runSession(engine, maiaEngine, isLichess, siteUrl, boardSel, read
           console.log('(превращение: ферзь)')
         }
 
-        const pmMinSecs = isBulletGame ? 6 : 15
-        const pmChance  = isBulletGame ? 0.28 : 0.20
+        const pmMinSecs = isBulletGame ? 8 : 18
+        const pmChance  = isBulletGame ? 0.15 : 0.10
         const pmAllowed = (isBulletGame || gameCategory === 'blitz')
         if (pmAllowed && !promo && !turbo && effSecs !== null && effSecs > pmMinSecs && Math.random() < pmChance) {
           const origDepth = DEPTH, origSkill = SKILL
@@ -887,7 +887,12 @@ async function runSession(engine, maiaEngine, isLichess, siteUrl, boardSel, read
             for (const san of sanMoves) { try { chessAfter.move(san) } catch {} }
             chessAfter.move({ from, to, promotion: 'q' })
             const fenAfterOur = chessAfter.fen()
-            const oppMovesCurrent = chessAfter.moves({ verbose: true })
+            const oppLegalMoves = chessAfter.moves({ verbose: true })
+
+            // Безопасно только когда у соперника мало ходов — предсказание надёжнее
+            if (oppLegalMoves.length > 6) throw new Error('skip')
+
+            // Проверка: наш ферзь не под ударом
             const board = chessAfter.board()
             let ourQueenSq = null
             for (let r = 0; r < 8 && !ourQueenSq; r++)
@@ -895,15 +900,28 @@ async function runSession(engine, maiaEngine, isLichess, siteUrl, boardSel, read
                 const p = board[r][f]
                 if (p && p.type === 'q' && p.color === myColor) ourQueenSq = 'abcdefgh'[f] + (8 - r)
               }
-            if (ourQueenSq && oppMovesCurrent.some(m => m.to === ourQueenSq)) throw new Error('skip')
+            if (ourQueenSq && oppLegalMoves.some(m => m.to === ourQueenSq)) throw new Error('skip')
+
             SKILL = 20; DEPTH = isBulletGame ? 3 : 5
-            const oppMove = await engine.getBestMove(fenAfterOur)
+            const oppBest = await engine.getBest(fenAfterOur, DEPTH)
+            const oppMove = oppBest.move
             if (!oppMove || oppMove.length < 4) throw new Error('skip')
             const oppApplied = chessAfter.move({ from: oppMove.slice(0,2), to: oppMove.slice(2,4), promotion: 'q' })
             if (!oppApplied) throw new Error('skip')
-            const pmMove = await engine.getBestMove(chessAfter.fen())
+
+            const pmBest = await engine.getBest(chessAfter.fen(), DEPTH)
+            const pmMove = pmBest.move
             if (!pmMove || pmMove.length < 4) throw new Error('skip')
             const pmFrom = pmMove.slice(0, 2), pmTo = pmMove.slice(2, 4)
+
+            // Проверка: наш ход не вешает фигуру
+            const chessAfterPm = new Chess(chessAfter.fen())
+            const pmApplied = chessAfterPm.move({ from: pmFrom, to: pmTo, promotion: 'q' })
+            if (!pmApplied) throw new Error('skip')
+            const oppReplies = chessAfterPm.moves({ verbose: true })
+            const pmPiece = chessAfterPm.get(pmTo)
+            if (pmPiece && oppReplies.some(m => m.to === pmTo && m.flags.includes('c'))) throw new Error('skip')
+
             await page.waitForTimeout(80 + Math.random() * 200)
             await clickSquare(page, pmFrom, boardBox, flipped, true)
             await page.waitForTimeout(30 + Math.random() * 50)
