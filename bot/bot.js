@@ -45,6 +45,7 @@ let lastPauseToggle = 0
 let RESTART = false
 let savedDepth = null
 let savedSkill = null
+let savedAutoDepth = null
 let mousePos = { x: 0, y: 0 }
 let gamesPlayed = 0
 let fatigueGamesLeft = 0
@@ -160,14 +161,14 @@ function startCommandListener(page) {
       RESTART = true; PAUSED = false
       console.log('\n→ Перезапуск игрового цикла...')
     } else if (cmd === 'n') {
-      savedDepth = DEPTH; savedSkill = SKILL
+      savedDepth = DEPTH; savedSkill = SKILL; savedAutoDepth = AUTO_DEPTH
       DEPTH = 1; SKILL = 1; AUTO_DEPTH = false
       console.log(`\n→ Режим тупого: d1 s1 (было d${savedDepth} s${savedSkill}) | b — вернуть`)
     } else if (cmd === 'b') {
       if (savedDepth !== null) {
-        DEPTH = savedDepth; SKILL = savedSkill; AUTO_DEPTH = false
-        savedDepth = savedSkill = null
-        console.log(`\n→ Восстановлено: d${DEPTH} s${SKILL}`)
+        DEPTH = savedDepth; SKILL = savedSkill; AUTO_DEPTH = savedAutoDepth ?? false
+        savedDepth = savedSkill = savedAutoDepth = null
+        console.log(`\n→ Восстановлено: d${DEPTH} s${SKILL}${AUTO_DEPTH ? ' [авто]' : ''}`)
       } else {
         console.log('\n→ Нечего восстанавливать')
       }
@@ -831,6 +832,7 @@ async function runSession(engine, maiaEngine, isLichess, siteUrl, boardSel, read
           if (isLongThink) DEPTH = Math.min(DEPTH + 1, 20)
           else if (simpleEndgame) DEPTH = Math.min(DEPTH, 4)
           else if (isComplex && Math.random() < 0.30) DEPTH = Math.max(1, DEPTH - 2)
+          const depthReduced = isComplex && DEPTH < origDepth
 
           process.stdout.write(`Ход ${moveNum} | Думаю... `)
           const t0 = Date.now()
@@ -841,7 +843,7 @@ async function runSession(engine, maiaEngine, isLichess, siteUrl, boardSel, read
           if (!uciMove) { console.log('(нет хода)'); continue }
           from = uciMove.slice(0, 2); to = uciMove.slice(2, 4); promo = uciMove[4] || null
 
-          const modeTag = isLongThink ? '★' : inStreak ? '⚡' : isComplex && DEPTH < origDepth ? '~' : ''
+          const modeTag = isLongThink ? '★' : inStreak ? '⚡' : depthReduced ? '~' : ''
           tag = maiaEngine
             ? (combo.source === 'sf-override' ? `[maia→SF d${DEPTH}]` : `[maia d${DEPTH}]`)
             : (isFast ? `[быстро d${DEPTH}]` : `[d${DEPTH}s${SKILL}${modeTag}]`)
