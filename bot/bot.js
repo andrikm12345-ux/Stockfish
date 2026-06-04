@@ -670,12 +670,9 @@ async function getComboMove(fen, sfEngine, maiaEngine, suboptimal, lateGame, eff
     return { uciMove, source: 'sf' }
   }
 
-  // Глубина проверки: цейтнот — мельче, но всегда ≥2 чтобы видеть тактику
   const lowTime = effSecs !== null && effSecs < 8
   const checkDepth = lowTime ? 2 : isBulletGame ? 4 : 8
 
-  // Maia и SF думают параллельно (разные процессы — нет конфликтов)
-  // sfBest = истинно лучший ход SF + оценка позиции ДО хода (наша перспектива)
   const [maiaMove, sfBest] = await Promise.all([
     maiaEngine.getBestMove(fen),
     sfEngine.getBest(fen, checkDepth),
@@ -683,17 +680,21 @@ async function getComboMove(fen, sfEngine, maiaEngine, suboptimal, lateGame, eff
   const evalBefore = sfBest.score
 
   if (!maiaMove) return { uciMove: sfBest.move, source: 'sf' }
-  if (maiaMove === sfBest.move) return { uciMove: maiaMove, source: 'maia' }
+
+  if (maiaMove === sfBest.move) {
+    console.log(`  [debug] maia=sf=${maiaMove} evalBefore=${evalBefore}`)
+    return { uciMove: maiaMove, source: 'maia' }
+  }
 
   const testChess = new Chess(fen)
   let applied = null
   try { applied = testChess.move({ from: maiaMove.slice(0,2), to: maiaMove.slice(2,4), promotion: maiaMove[4] || 'q' }) } catch {}
   if (!applied) return { uciMove: sfBest.move, source: 'sf' }
 
-  // Оценка позиции ПОСЛЕ хода Maia (перспектива соперника)
   const evalAfterMaia = await sfEngine.getEval(testChess.fen(), checkDepth)
-  // Падение нашей оценки = evalBefore + evalAfterMaia (учёт смены стороны)
   const drop = evalBefore + evalAfterMaia
+
+  console.log(`  [debug] maia=${maiaMove} sf=${sfBest.move} before=${evalBefore} after=${evalAfterMaia} drop=${drop} depth=${checkDepth}`)
 
   if (drop > 150) return { uciMove: sfBest.move, source: 'sf-override' }
   return { uciMove: maiaMove, source: 'maia' }
