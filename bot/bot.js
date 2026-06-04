@@ -661,7 +661,7 @@ async function openBrowser(siteUrl) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Комбо-ход: Maia делает ходы, Stockfish страхует от зевков (порог >400cp)
+// Комбо-ход: Maia делает ходы, Stockfish страхует от зевков (порог >150cp)
 // Если maiaEngine = null — работает как чистый Stockfish (без изменений)
 // ─────────────────────────────────────────────────────────────────────────────
 async function getComboMove(fen, sfEngine, maiaEngine, suboptimal, lateGame, effSecs) {
@@ -680,6 +680,7 @@ async function getComboMove(fen, sfEngine, maiaEngine, suboptimal, lateGame, eff
   const evalBefore = sfBest.score
 
   if (!maiaMove) return { uciMove: sfBest.move, source: 'sf' }
+  if (!sfBest.move) return { uciMove: maiaMove, source: 'maia' }
 
   if (maiaMove === sfBest.move) {
     console.log(`  [debug] maia=sf=${maiaMove} evalBefore=${evalBefore}`)
@@ -856,7 +857,7 @@ async function runSession(engine, maiaEngine, isLichess, siteUrl, boardSel, read
 
         if (!book && isBulletGame && secs !== null && secs < 10 && timeDelta < -3 && lastEngineScore < 100 && Math.random() < 0.08) {
           console.log(`(флаг — наше ${Math.round(secs)}с | opp ${Math.round(oppSecs ?? 0)}с | Δ${Math.round(timeDelta)}с)`)
-          await page.waitForTimeout((secs + 2) * 1000)
+          await page.waitForTimeout(Math.max(0, (secs - 1) * 1000))
           continue
         }
 
