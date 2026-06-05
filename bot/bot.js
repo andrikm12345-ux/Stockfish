@@ -286,6 +286,14 @@ async function readTimeControlSecs(page) {
   }).catch(() => null)
 }
 
+function getInaccPct() {
+  if (INACCURACY_OVERRIDE !== null) return Math.round(INACCURACY_OVERRIDE * 100)
+  if (gameCategory === 'bullet') return 8
+  if (gameCategory === 'blitz')  return gameTotalSecs > 0 && gameTotalSecs < 270 ? 18 : 14
+  if (gameCategory === 'rapid')  return 10
+  return 0
+}
+
 async function detectGameType(page) {
   let totalSecs = await readTimeControlSecs(page)
   const source  = totalSecs !== null ? 'заголовок' : 'часы'
@@ -294,14 +302,17 @@ async function detectGameType(page) {
   isBulletGame = totalSecs < 180
   gameCategory = totalSecs < 180 ? 'bullet' : totalSecs < 600 ? 'blitz' : 'rapid'
   gameTotalSecs = totalSecs
+  const inaccTag = INACCURACY_OVERRIDE !== null
+    ? `i=${getInaccPct()}% (ручной)`
+    : `i=${getInaccPct()}% (авто)`
   if (!AUTO_DEPTH) {
-    console.log(`Контроль: ${Math.round(totalSecs)}с [${gameCategory}] (${source}) | Depth:${DEPTH} (вручную)`)
+    console.log(`Контроль: ${Math.round(totalSecs)}с [${gameCategory}] (${source}) | d${DEPTH} (вручную) | ${inaccTag}`)
     return
   }
   if      (totalSecs < 180) DEPTH = 5
   else if (totalSecs < 600) DEPTH = 8
   else                      DEPTH = 12
-  console.log(`Авто-глубина: ${Math.round(totalSecs)}с [${gameCategory}] (${source}) → depth ${DEPTH}`)
+  console.log(`Контроль: ${Math.round(totalSecs)}с [${gameCategory}] (${source}) | d${DEPTH} (авто) | ${inaccTag}`)
 }
 
 async function initEngine() {
@@ -783,19 +794,7 @@ async function getComboMove(fen, sfEngine, maiaEngine, suboptimal, lateGame, eff
   if (drop > 350) return { uciMove: sfBest.move, source: 'sf-override' }
 
   // Иногда играем m2/m3 вместо хода Maia — имитация человеческих неточностей
-  // Авто: пуля=8%, блиц 3+0=18%, блиц 5+0/5+3=14%, рапид=10%
-  let inaccRate
-  if (INACCURACY_OVERRIDE !== null) {
-    inaccRate = INACCURACY_OVERRIDE
-  } else if (gameCategory === 'bullet') {
-    inaccRate = 0.08
-  } else if (gameCategory === 'blitz') {
-    inaccRate = gameTotalSecs > 0 && gameTotalSecs < 270 ? 0.18 : 0.14
-  } else if (gameCategory === 'rapid') {
-    inaccRate = 0.10
-  } else {
-    inaccRate = 0
-  }
+  const inaccRate = getInaccPct() / 100
   if (!lowTime && inaccRate > 0 && Math.random() < inaccRate) {
     if (sfBest.m3 && (sfBest.score - sfBest.s3) < 250 && Math.random() < 0.30)
       return { uciMove: sfBest.m3, source: 'sf-mistake' }
@@ -828,12 +827,9 @@ async function runSession(engine, maiaEngine, isLichess, siteUrl, boardSel, read
       const myColor = fl ? 'b' : 'w'
       errorStreakLeft = 0
       await detectGameType(page)
-      const autoInaccPct = gameCategory === 'bullet' ? 8
-        : gameCategory === 'blitz' ? (gameTotalSecs > 0 && gameTotalSecs < 270 ? 18 : 14)
-        : gameCategory === 'rapid' ? 10 : 0
       const inaccLabel = INACCURACY_OVERRIDE !== null
-        ? `i=${Math.round(INACCURACY_OVERRIDE*100)}% (ручной)`
-        : `i=${autoInaccPct}% (авто)`
+        ? `i=${getInaccPct()}% (ручной)`
+        : `i=${getInaccPct()}% (авто)`
       const modeInfo = maiaEngine
         ? `Режим: Maia+SF | ${inaccLabel}`
         : `Depth:${DEPTH} Skill:${SKILL}${AUTO_DEPTH ? ' [авто]' : ''} | ${inaccLabel}`
