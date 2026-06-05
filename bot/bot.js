@@ -1151,8 +1151,8 @@ async function runSession(engine, maiaEngine, isLichess, siteUrl, boardSel, read
           console.log('(превращение: ферзь)')
         }
 
-        const pmMinSecs = isBulletGame ? 8 : 18
-        const pmChance  = isBulletGame ? 0.25 : 0.12
+        const pmMinSecs = isBulletGame ? 12 : 20
+        const pmChance  = isBulletGame ? 0.18 : 0.10
         const pmAllowed = (isBulletGame || gameCategory === 'blitz')
         if (pmAllowed && !promo && !turbo && effSecs !== null && effSecs > pmMinSecs && Math.random() < pmChance) {
           const origDepth = DEPTH, origSkill = SKILL
@@ -1163,8 +1163,10 @@ async function runSession(engine, maiaEngine, isLichess, siteUrl, boardSel, read
             const fenAfterOur = chessAfter.fen()
             const oppLegalMoves = chessAfter.moves({ verbose: true })
 
-            // Пропускаем только в открытых хаотичных позициях (много форсированных вариантов)
-            if (oppLegalMoves.length > 45) throw new Error('skip')
+            // Только тихие позиции: нет шахов от соперника, мало взятий, ограниченный выбор
+            const oppChecks   = oppLegalMoves.filter(m => m.san.includes('+'))
+            const oppCaptures = oppLegalMoves.filter(m => m.flags.includes('c') || m.flags.includes('e'))
+            if (oppLegalMoves.length > 28 || oppChecks.length > 0 || oppCaptures.length > 3) throw new Error('skip')
 
             // Проверка: наш ферзь не под ударом
             const board = chessAfter.board()
