@@ -288,7 +288,7 @@ async function readTimeControlSecs(page) {
 
 function getInaccPct() {
   if (INACCURACY_OVERRIDE !== null) return Math.round(INACCURACY_OVERRIDE * 100)
-  if (gameCategory === 'bullet') return 8
+  if (gameCategory === 'bullet') return 10
   if (gameCategory === 'blitz')  return gameTotalSecs > 0 && gameTotalSecs < 270 ? 18 : 14
   if (gameCategory === 'rapid')  return 10
   return 0
