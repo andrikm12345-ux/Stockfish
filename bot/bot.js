@@ -765,6 +765,15 @@ async function getComboMove(fen, sfEngine, maiaEngine, suboptimal, lateGame, eff
   const lowTime = effSecs !== null && effSecs < lowTimeThresh
   const checkDepth = lowTime ? 2 : isBulletGame ? 4 : 8
 
+  // Экстремально мало времени (< 3с) — только лучший ход, без SEE/getEval/инъекции
+  const panicMode = effSecs !== null && effSecs < 3
+  if (panicMode) {
+    const fastMove = maiaEngine ? await maiaEngine.getBestMove(fen) : null
+    const sfFast   = await sfEngine.getBest(fen, 1)
+    const mv = fastMove || sfFast.move
+    return { uciMove: mv || null, source: mv === fastMove ? 'maia' : 'sf' }
+  }
+
   const [maiaMove, sfBest] = await Promise.all([
     maiaEngine.getBestMove(fen),
     sfEngine.getBest(fen, checkDepth),
@@ -879,10 +888,13 @@ async function runSession(engine, maiaEngine, isLichess, siteUrl, boardSel, read
         for (const san of sanMoves) { try { chess.move(san) } catch {} }
         const fen = chess.fen()
         if (fen === lastFen) {
-          // Авто-рестарт: ход не зарегистрировался на Lichess за 6 секунд
-          const stuckMs = isBulletGame ? 2000 : gameCategory === 'blitz' ? 4000 : 6000
+          // Авто-рестарт: ход не зарегистрировался — таймаут зависит от остатка времени
+          const { our: secsNow } = isLichess ? await readBothClocks(page) : { our: null }
+          const stuckMs = secsNow !== null && secsNow < 5
+            ? Math.max(300, secsNow * 200)   // при < 5с: 300-1000мс (20% от остатка)
+            : isBulletGame ? 2000 : gameCategory === 'blitz' ? 4000 : 6000
           if (chess.turn() === myColor && stuckFen === fen && stuckSince > 0 && Date.now() - stuckSince > stuckMs) {
-            console.log('[авто-рестарт] Ход не прошёл — перезапуск')
+            console.log(`[авто-рестарт] Ход не прошёл за ${stuckMs}мс — перезапуск`)
             RESTART = true
           }
           continue
