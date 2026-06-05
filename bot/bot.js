@@ -181,7 +181,7 @@ function startCommandListener(page) {
     } else if (cmd === 'i') {
       if (!val || val === 'a') {
         INACCURACY_OVERRIDE = null
-        console.log('\n→ Инъекция: авто (пуля=0%, блиц=12%, рапид=15%)')
+        console.log('\n→ Инъекция: авто (пуля=15%, блиц=16–20%, рапид=12%)')
       } else {
         const pct = parseFloat(val)
         if (!isNaN(pct) && pct >= 0 && pct <= 100) {
@@ -436,7 +436,7 @@ async function initEngine() {
     },
     getEval(fen, depth = 6) {
       return new Promise(res => {
-        multiMoves = {}; forcePureBest = false
+        multiMoves = {}; forcePureBest = false; forceSuboptimal = false
         bestMoveCb = () => res(lastEngineScore)
         send('stop')
         send('setoption name Skill Level value 20')
@@ -497,6 +497,7 @@ async function initMaiaEngine() {
   let mBestMoveCb = null
   let mReadyOkCb  = null
   let mBuf        = ''
+  let mActiveRc   = null
 
   proc.on('error', (err) => { console.error('Ошибка lc0:', err.message) })
   proc.stdout.on('data', (data) => {
@@ -507,6 +508,7 @@ async function initMaiaEngine() {
       const line = raw.trim()
       if (line === 'readyok' && mReadyOkCb) { const cb = mReadyOkCb; mReadyOkCb = null; cb(true) }
       if (line.startsWith('bestmove') && mBestMoveCb) {
+        if (mActiveRc) { clearInterval(mActiveRc); mActiveRc = null }
         const mv = line.split(' ')[1]
         const cb = mBestMoveCb; mBestMoveCb = null
         cb(mv === '(none)' || !mv ? null : mv)
@@ -532,14 +534,21 @@ async function initMaiaEngine() {
     getBestMove(fen) {
       return new Promise(res => {
         mBestMoveCb = res
+        if (mActiveRc) { clearInterval(mActiveRc); mActiveRc = null }
         mSend('stop')
         mSend(`position fen ${fen}`)
         const maiaNodes = gameCategory === 'rapid' ? 15 : gameCategory === 'blitz' ? 5 : 1
         mSend(`go nodes ${maiaNodes}`)
         const rc = setInterval(() => {
-          if (RESTART && mBestMoveCb === res) { clearInterval(rc); mBestMoveCb = null; res(null) }
+          if (RESTART && mBestMoveCb === res) {
+            clearInterval(rc); mActiveRc = null; mBestMoveCb = null; res(null)
+          }
         }, 200)
-        setTimeout(() => { clearInterval(rc); if (mBestMoveCb === res) { mBestMoveCb = null; res(null) } }, 5000)
+        mActiveRc = rc
+        setTimeout(() => {
+          clearInterval(rc); if (mActiveRc === rc) mActiveRc = null
+          if (mBestMoveCb === res) { mBestMoveCb = null; res(null) }
+        }, 5000)
       })
     },
     quit() { mSend('quit') },
@@ -1107,8 +1116,8 @@ async function runSession(engine, maiaEngine, isLichess, siteUrl, boardSel, read
             const fenAfterOur = chessAfter.fen()
             const oppLegalMoves = chessAfter.moves({ verbose: true })
 
-            // Безопасно только когда у соперника мало ходов — предсказание надёжнее
-            if (oppLegalMoves.length > 6) throw new Error('skip')
+            // Пропускаем только в очень открытых хаотичных позициях
+            if (oppLegalMoves.length > 30) throw new Error('skip')
 
             // Проверка: наш ферзь не под ударом
             const board = chessAfter.board()
