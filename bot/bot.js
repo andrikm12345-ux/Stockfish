@@ -596,7 +596,9 @@ async function runSession(engine, isLichess, siteUrl, boardSel, readState) {
         if (PAUSED) continue
 
         const chess = new Chess()
-        for (const san of sanMoves) { try { chess.move(san) } catch {} }
+        let badMoves = 0
+        for (const san of sanMoves) { try { chess.move(san) } catch { badMoves++ } }
+        if (badMoves > 0) console.log(`[!] Не распознал ${badMoves}/${sanMoves.length} ходов из DOM`)
         const fen = chess.fen()
         if (fen === lastFen) {
           // Авто-рестарт: ход не зарегистрировался на Lichess за 6 секунд
