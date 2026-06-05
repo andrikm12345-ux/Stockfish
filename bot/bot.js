@@ -44,6 +44,7 @@ let gameTotalSecs = 0
 let INACCURACY_OVERRIDE = null
 let liveMoveAccuracies = []  // точность по каждому нашему ходу (0–100, текущая партия)
 let liveAdjust = 1.0         // адаптивный множитель инъекции (цель: точность 70–88%)
+let liveLastInjectAt = -99   // индекс последней инъекции (кулдаун 4 хода)
 let lastEngineScore = 0
 let PAUSED = false
 let lastPauseToggle = 0
@@ -317,11 +318,11 @@ function calcLiveAccuracy() {
 function updateLiveAdjust() {
   if (liveMoveAccuracies.length < 5) return
   const acc = calcLiveAccuracy()
-  if (acc > 92)       liveAdjust = Math.min(6.0, liveAdjust * 1.30)
-  else if (acc > 88)  liveAdjust = Math.min(6.0, liveAdjust * 1.15)
-  else if (acc < 66)  liveAdjust = Math.max(0.2, liveAdjust * 0.75)
-  else if (acc < 70)  liveAdjust = Math.max(0.3, liveAdjust * 0.88)
-  else                liveAdjust = liveAdjust * 0.92 + 1.0 * 0.08
+  if (acc > 95)       liveAdjust = Math.min(2.5, liveAdjust * 1.08)
+  else if (acc > 88)  liveAdjust = Math.min(2.5, liveAdjust * 1.04)
+  else if (acc < 66)  liveAdjust = Math.max(0.3, liveAdjust * 0.80)
+  else if (acc < 70)  liveAdjust = Math.max(0.4, liveAdjust * 0.92)
+  else                liveAdjust = liveAdjust * 0.95 + 1.0 * 0.05
 }
 
 async function detectGameType(page) {
@@ -801,15 +802,16 @@ async function getComboMove(fen, sfEngine, maiaEngine, suboptimal, lateGame, eff
   if (!maiaEngine) {
     const sfBest = await sfEngine.getBest(fen, isBulletGame ? 4 : 8)
     if (!sfBest.move) return { uciMove: null, source: 'sf', estMvAccuracy: 100 }
-    const inaccRate = Math.min(0.85, (getInaccPct() / 100) * liveAdjust)
-    if (!lowTimeSF && inaccRate > 0 && Math.random() < inaccRate) {
+    const inaccRate = Math.min(0.60, (getInaccPct() / 100) * liveAdjust)
+    const injectCooldownSF = (liveMoveAccuracies.length - liveLastInjectAt) < 4
+    if (!lowTimeSF && !injectCooldownSF && inaccRate > 0 && Math.random() < inaccRate) {
       if (sfBest.m3 && (sfBest.score - sfBest.s3) < 500 && Math.random() < 0.25) {
         const m3Loss = -seeMove(fen, sfBest.m3.slice(0, 2), sfBest.m3.slice(2, 4))
-        if (m3Loss < 450) return { uciMove: sfBest.m3, source: 'sf-mistake', estMvAccuracy: movAccuracy(sfBest.score, sfBest.s3) }
+        if (m3Loss < 450) { liveLastInjectAt = liveMoveAccuracies.length; return { uciMove: sfBest.m3, source: 'sf-mistake', estMvAccuracy: movAccuracy(sfBest.score, sfBest.s3) } }
       }
       if (sfBest.m2 && (sfBest.score - sfBest.s2) < 300) {
         const m2Loss = -seeMove(fen, sfBest.m2.slice(0, 2), sfBest.m2.slice(2, 4))
-        if (m2Loss < 450) return { uciMove: sfBest.m2, source: 'sf-inaccuracy', estMvAccuracy: movAccuracy(sfBest.score, sfBest.s2) }
+        if (m2Loss < 450) { liveLastInjectAt = liveMoveAccuracies.length; return { uciMove: sfBest.m2, source: 'sf-inaccuracy', estMvAccuracy: movAccuracy(sfBest.score, sfBest.s2) } }
       }
     }
     return { uciMove: sfBest.move, source: 'sf', estMvAccuracy: 100 }
@@ -873,18 +875,25 @@ async function getComboMove(fen, sfEngine, maiaEngine, suboptimal, lateGame, eff
     console.log(`  [debug] maia=sf=${maiaMove} evalBefore=${evalBefore}`)
   }
 
-  // Инъекция неточностей — срабатывает ВСЕГДА (в т.ч. когда Maia=SF), кроме нехватки времени
-  // liveAdjust масштабирует базовую ставку: растёт если точность > 88%, падает если < 70%.
-  // SEE-фильтр: не играем m2/m3 если они физически вешают фигуру ≥450cp.
-  const inaccRate = Math.min(0.85, (getInaccPct() / 100) * liveAdjust)
-  if (chosenSource !== 'sf-override' && !lowTime && inaccRate > 0 && Math.random() < inaccRate) {
+  // Инъекция неточностей — кроме: нехватка времени, sf-override, кулдаун 4 хода,
+  // и если Maia уже играет плохо (её ход уже даёт < 80% точности — не добавляем поверх).
+  const inaccRate = Math.min(0.60, (getInaccPct() / 100) * liveAdjust)
+  const injectCooldown = (liveMoveAccuracies.length - liveLastInjectAt) < 4
+  const maiaAlreadyBad = chosenSource === 'maia' && maiaMvAccuracy < 80
+  if (chosenSource !== 'sf-override' && !lowTime && !injectCooldown && !maiaAlreadyBad && inaccRate > 0 && Math.random() < inaccRate) {
     if (sfBest.m3 && (sfBest.score - sfBest.s3) < 500 && Math.random() < 0.25) {
       const m3Loss = -seeMove(fen, sfBest.m3.slice(0, 2), sfBest.m3.slice(2, 4))
-      if (m3Loss < 450) return { uciMove: sfBest.m3, source: 'sf-mistake', estMvAccuracy: movAccuracy(sfBest.score, sfBest.s3) }
+      if (m3Loss < 450) {
+        liveLastInjectAt = liveMoveAccuracies.length
+        return { uciMove: sfBest.m3, source: 'sf-mistake', estMvAccuracy: movAccuracy(sfBest.score, sfBest.s3) }
+      }
     }
     if (sfBest.m2 && (sfBest.score - sfBest.s2) < 300) {
       const m2Loss = -seeMove(fen, sfBest.m2.slice(0, 2), sfBest.m2.slice(2, 4))
-      if (m2Loss < 450) return { uciMove: sfBest.m2, source: 'sf-inaccuracy', estMvAccuracy: movAccuracy(sfBest.score, sfBest.s2) }
+      if (m2Loss < 450) {
+        liveLastInjectAt = liveMoveAccuracies.length
+        return { uciMove: sfBest.m2, source: 'sf-inaccuracy', estMvAccuracy: movAccuracy(sfBest.score, sfBest.s2) }
+      }
     }
   }
 
@@ -913,7 +922,7 @@ async function runSession(engine, maiaEngine, isLichess, siteUrl, boardSel, read
       const myColor = fl ? 'b' : 'w'
       errorStreakLeft = 0
       await detectGameType(page)
-      liveMoveAccuracies = []; liveAdjust = 1.0
+      liveMoveAccuracies = []; liveAdjust = 1.0; liveLastInjectAt = -99
       const inaccLabel = INACCURACY_OVERRIDE !== null
         ? `i=${getInaccPct()}% (ручной)`
         : `i=${getInaccPct()}% (авто)`
