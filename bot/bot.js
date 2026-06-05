@@ -768,50 +768,50 @@ async function getComboMove(fen, sfEngine, maiaEngine, suboptimal, lateGame, eff
   if (!maiaMove) return { uciMove: sfBest.move, source: 'sf' }
   if (!sfBest.move) return { uciMove: maiaMove, source: 'maia' }
 
-  if (maiaMove === sfBest.move) {
+  // Определяем финальный ход (Maia или SF-override) — инъекция применяется ПОСЛЕ этого
+  let chosenMove = maiaMove
+  let chosenSource = 'maia'
+
+  if (maiaMove !== sfBest.move) {
+    const testChess = new Chess(fen)
+    let applied = null
+    try { applied = testChess.move({ from: maiaMove.slice(0,2), to: maiaMove.slice(2,4), promotion: maiaMove[4] || 'q' }) } catch {}
+    if (!applied) {
+      chosenMove = sfBest.move; chosenSource = 'sf'
+    } else {
+      const evalAfterMaia = await sfEngine.getEval(testChess.fen(), checkDepth)
+      const drop = evalBefore + evalAfterMaia
+      const maiaLoss = -seeMove(fen, maiaMove.slice(0, 2), maiaMove.slice(2, 4))
+      const otherHang = maxOtherHang(testChess, maiaMove.slice(2, 4))
+      const worstLoss = Math.max(maiaLoss, otherHang)
+
+      console.log(`  [debug] maia=${maiaMove} sf=${sfBest.move} before=${evalBefore} after=${evalAfterMaia} drop=${drop} SEE=${worstLoss} depth=${checkDepth}`)
+
+      if (worstLoss >= 450) {
+        console.log(`  [override] Maia вешает материал SEE=${worstLoss} → SF ${sfBest.move}`)
+        chosenMove = sfBest.move; chosenSource = 'sf-override'
+      } else if (worstLoss >= 250 && drop > 60) {
+        console.log(`  [override] Maia вешает фигуру SEE=${worstLoss} drop=${drop} → SF ${sfBest.move}`)
+        chosenMove = sfBest.move; chosenSource = 'sf-override'
+      } else if (drop > 350) {
+        chosenMove = sfBest.move; chosenSource = 'sf-override'
+      }
+    }
+  } else {
     console.log(`  [debug] maia=sf=${maiaMove} evalBefore=${evalBefore}`)
-    return { uciMove: maiaMove, source: 'maia' }
   }
 
-  const testChess = new Chess(fen)
-  let applied = null
-  try { applied = testChess.move({ from: maiaMove.slice(0,2), to: maiaMove.slice(2,4), promotion: maiaMove[4] || 'q' }) } catch {}
-  if (!applied) return { uciMove: sfBest.move, source: 'sf' }
-
-  const evalAfterMaia = await sfEngine.getEval(testChess.fen(), checkDepth)
-  const drop = evalBefore + evalAfterMaia
-
-  // ── ЖЁСТКАЯ страховка от зевков материала (SEE, не зависит от глубины/таймаутов SF) ──
-  // maiaLoss > 0 = ход Maia теряет материал на клетке назначения; otherHang = потеря в др. месте
-  const maiaLoss = -seeMove(fen, maiaMove.slice(0, 2), maiaMove.slice(2, 4))
-  const otherHang = maxOtherHang(testChess, maiaMove.slice(2, 4))
-  const worstLoss = Math.max(maiaLoss, otherHang)
-
-  console.log(`  [debug] maia=${maiaMove} sf=${sfBest.move} before=${evalBefore} after=${evalAfterMaia} drop=${drop} SEE=${worstLoss} depth=${checkDepth}`)
-
-  // Ладья/ферзь под боем зря — НИКОГДА не отдаём (SF уже выбрал бы это, если бы это была жертва)
-  if (worstLoss >= 450) {
-    console.log(`  [override] Maia вешает материал SEE=${worstLoss} → SF ${sfBest.move}`)
-    return { uciMove: sfBest.move, source: 'sf-override' }
-  }
-  // Лёгкая фигура под боем — отдаём только если оценка SF тоже против хода (не звучная жертва)
-  if (worstLoss >= 250 && drop > 60) {
-    console.log(`  [override] Maia вешает фигуру SEE=${worstLoss} drop=${drop} → SF ${sfBest.move}`)
-    return { uciMove: sfBest.move, source: 'sf-override' }
-  }
-
-  if (drop > 350) return { uciMove: sfBest.move, source: 'sf-override' }
-
-  // Иногда играем m2/m3 вместо хода Maia — имитация человеческих неточностей
+  // Инъекция неточностей — срабатывает ВСЕГДА (в т.ч. когда Maia=SF), кроме нехватки времени
+  // Не применяем если уже выбрали SF-override (безопасность важнее)
   const inaccRate = getInaccPct() / 100
-  if (!lowTime && inaccRate > 0 && Math.random() < inaccRate) {
+  if (chosenSource !== 'sf-override' && !lowTime && inaccRate > 0 && Math.random() < inaccRate) {
     if (sfBest.m3 && (sfBest.score - sfBest.s3) < 250 && Math.random() < 0.30)
       return { uciMove: sfBest.m3, source: 'sf-mistake' }
     if (sfBest.m2 && (sfBest.score - sfBest.s2) < 150)
       return { uciMove: sfBest.m2, source: 'sf-inaccuracy' }
   }
 
-  return { uciMove: maiaMove, source: 'maia' }
+  return { uciMove: chosenMove, source: chosenSource }
 }
 
 async function runSession(engine, maiaEngine, isLichess, siteUrl, boardSel, readState) {
