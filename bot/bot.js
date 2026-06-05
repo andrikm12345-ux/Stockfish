@@ -43,7 +43,7 @@ let gameTotalSecs = 0
 // Инъекция неточностей — переопределяет дефолты по категории игры (null = авто)
 let INACCURACY_OVERRIDE = null
 let liveMoveAccuracies = []  // точность по каждому нашему ходу (0–100, текущая партия)
-let liveAdjust = 1.0         // адаптивный множитель инъекции (цель: точность 70–88%)
+let liveAdjust = 1.0         // адаптивный множитель инъекции (цель: точность 70–85%)
 let liveLastInjectAt = -99   // индекс последней инъекции (кулдаун 4 хода)
 let lastEngineScore = 0
 let PAUSED = false
@@ -181,7 +181,7 @@ function startCommandListener(page) {
     } else if (cmd === 'i') {
       if (!val || val === 'a') {
         INACCURACY_OVERRIDE = null
-        console.log('\n→ Инъекция: авто (пуля=15%, блиц=16–20%, рапид=12%)')
+        console.log('\n→ Инъекция: авто (пуля=22%, блиц=24–28%, рапид=20%)')
       } else {
         const pct = parseFloat(val)
         if (!isNaN(pct) && pct >= 0 && pct <= 100) {
@@ -291,9 +291,9 @@ async function readTimeControlSecs(page) {
 
 function getInaccPct() {
   if (INACCURACY_OVERRIDE !== null) return Math.round(INACCURACY_OVERRIDE * 100)
-  if (gameCategory === 'bullet') return 15
-  if (gameCategory === 'blitz')  return gameTotalSecs > 0 && gameTotalSecs < 270 ? 20 : 16
-  if (gameCategory === 'rapid')  return 12
+  if (gameCategory === 'bullet') return 22
+  if (gameCategory === 'blitz')  return gameTotalSecs > 0 && gameTotalSecs < 270 ? 28 : 24
+  if (gameCategory === 'rapid')  return 20
   return 0
 }
 
@@ -314,12 +314,13 @@ function calcLiveAccuracy() {
   return liveMoveAccuracies.reduce((a, b) => a + b, 0) / liveMoveAccuracies.length
 }
 
-// Адаптирует liveAdjust чтобы держать точность в диапазоне 70–88%
+// Адаптирует liveAdjust чтобы держать точность в диапазоне 70–85%
 function updateLiveAdjust() {
   if (liveMoveAccuracies.length < 5) return
   const acc = calcLiveAccuracy()
-  if (acc > 95)       liveAdjust = Math.min(2.5, liveAdjust * 1.08)
-  else if (acc > 88)  liveAdjust = Math.min(2.5, liveAdjust * 1.04)
+  if (acc > 95)       liveAdjust = Math.min(2.5, liveAdjust * 1.12)
+  else if (acc > 90)  liveAdjust = Math.min(2.5, liveAdjust * 1.06)
+  else if (acc > 85)  liveAdjust = Math.min(2.5, liveAdjust * 1.03)
   else if (acc < 66)  liveAdjust = Math.max(0.3, liveAdjust * 0.80)
   else if (acc < 70)  liveAdjust = Math.max(0.4, liveAdjust * 0.92)
   else                liveAdjust = liveAdjust * 0.95 + 1.0 * 0.05
