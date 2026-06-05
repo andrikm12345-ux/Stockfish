@@ -319,6 +319,7 @@ async function initEngine() {
   const sfExe = path.join(__dirname, 'stockfish.exe')
   const proc  = spawn(sfExe)
   let bestMoveCb = null, readyOkCb = null, multiMoves = {}, forceSuboptimal = false, lateGameMode = false, forcePureBest = false, buf = ''
+  let activeRc = null  // текущий setInterval для активного поиска (очищается при bestmove)
 
   proc.on('error', (err) => { console.error('\nНе найден stockfish.exe:', err.message); process.exit(1) })
 
@@ -340,6 +341,8 @@ async function initEngine() {
         if (mpM && pvM) multiMoves[parseInt(mpM[1])] = { move: pvM[1], score: sc }
       }
       if (line.startsWith('bestmove') && bestMoveCb) {
+        // Очищаем активный setInterval — предотвращаем утечку интервалов
+        if (activeRc) { clearInterval(activeRc); activeRc = null }
         const best = line.split(' ')[1]
         const cb = bestMoveCb; bestMoveCb = null
         const m1 = multiMoves[1]?.move || best
@@ -388,9 +391,16 @@ async function initEngine() {
         send(`position fen ${fen}`)
         send(engineCmd())
         const restartCheck = setInterval(() => {
-          if (RESTART && bestMoveCb === res) { clearInterval(restartCheck); bestMoveCb = null; res(null) }
+          if (RESTART && bestMoveCb === res) {
+            clearInterval(restartCheck); activeRc = null
+            send('stop'); bestMoveCb = null; res(null)
+          }
         }, 200)
-        setTimeout(() => { clearInterval(restartCheck); if (bestMoveCb === res) { bestMoveCb = null; res(null) } }, 10000)
+        activeRc = restartCheck
+        setTimeout(() => {
+          clearInterval(restartCheck); if (activeRc === restartCheck) activeRc = null
+          if (bestMoveCb === res) { send('stop'); bestMoveCb = null; res(null) }
+        }, 10000)
       })
     },
     getEval(fen, depth = 6) {
@@ -402,9 +412,16 @@ async function initEngine() {
         send(`position fen ${fen}`)
         send(`go depth ${depth}`)
         const rc = setInterval(() => {
-          if (RESTART && bestMoveCb) { clearInterval(rc); bestMoveCb = null; res(0) }
+          if (RESTART && bestMoveCb) {
+            clearInterval(rc); if (activeRc === rc) activeRc = null
+            send('stop'); bestMoveCb = null; res(0)
+          }
         }, 200)
-        setTimeout(() => { clearInterval(rc); if (bestMoveCb) { bestMoveCb = null; res(0) } }, 8000)
+        activeRc = rc
+        setTimeout(() => {
+          clearInterval(rc); if (activeRc === rc) activeRc = null
+          if (bestMoveCb) { send('stop'); bestMoveCb = null; res(0) }
+        }, 8000)
       })
     },
     // Чистый лучший ход + оценка (без рандома, скилл 20) — для страховки
@@ -417,9 +434,16 @@ async function initEngine() {
         send(`position fen ${fen}`)
         send(depth ? `go depth ${depth}` : engineCmd())
         const rc = setInterval(() => {
-          if (RESTART && bestMoveCb) { clearInterval(rc); bestMoveCb = null; res({ move: null, score: 0 }) }
+          if (RESTART && bestMoveCb) {
+            clearInterval(rc); if (activeRc === rc) activeRc = null
+            send('stop'); bestMoveCb = null; res({ move: null, score: 0 })
+          }
         }, 200)
-        setTimeout(() => { clearInterval(rc); if (bestMoveCb) { bestMoveCb = null; res({ move: null, score: 0 }) } }, 10000)
+        activeRc = rc
+        setTimeout(() => {
+          clearInterval(rc); if (activeRc === rc) activeRc = null
+          if (bestMoveCb) { send('stop'); bestMoveCb = null; res({ move: null, score: 0 }) }
+        }, 10000)
       })
     },
     quit() { send('quit') },
