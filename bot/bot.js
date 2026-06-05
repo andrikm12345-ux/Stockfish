@@ -288,9 +288,9 @@ async function readTimeControlSecs(page) {
 
 function getInaccPct() {
   if (INACCURACY_OVERRIDE !== null) return Math.round(INACCURACY_OVERRIDE * 100)
-  if (gameCategory === 'bullet') return 10
-  if (gameCategory === 'blitz')  return gameTotalSecs > 0 && gameTotalSecs < 270 ? 18 : 14
-  if (gameCategory === 'rapid')  return 10
+  if (gameCategory === 'bullet') return 15
+  if (gameCategory === 'blitz')  return gameTotalSecs > 0 && gameTotalSecs < 270 ? 20 : 16
+  if (gameCategory === 'rapid')  return 12
   return 0
 }
 
@@ -742,21 +742,27 @@ function maxOtherHang(chessAfterMove, excludeSquare) {
 // Если maiaEngine = null — работает как чистый Stockfish (без изменений)
 // ─────────────────────────────────────────────────────────────────────────────
 async function getComboMove(fen, sfEngine, maiaEngine, suboptimal, lateGame, effSecs) {
-  const lowTimeSF = effSecs !== null && effSecs < 8
+  const lowTimeSFThresh = isBulletGame ? 5 : gameCategory === 'blitz' ? 8 : 15
+  const lowTimeSF = effSecs !== null && effSecs < lowTimeSFThresh
   if (!maiaEngine) {
     const sfBest = await sfEngine.getBest(fen, isBulletGame ? 4 : 8)
     if (!sfBest.move) return { uciMove: null, source: 'sf' }
     const inaccRate = getInaccPct() / 100
     if (!lowTimeSF && inaccRate > 0 && Math.random() < inaccRate) {
-      if (sfBest.m3 && (sfBest.score - sfBest.s3) < 250 && Math.random() < 0.30)
-        return { uciMove: sfBest.m3, source: 'sf-mistake' }
-      if (sfBest.m2 && (sfBest.score - sfBest.s2) < 150)
-        return { uciMove: sfBest.m2, source: 'sf-inaccuracy' }
+      if (sfBest.m3 && (sfBest.score - sfBest.s3) < 500 && Math.random() < 0.25) {
+        const m3Loss = -seeMove(fen, sfBest.m3.slice(0, 2), sfBest.m3.slice(2, 4))
+        if (m3Loss < 450) return { uciMove: sfBest.m3, source: 'sf-mistake' }
+      }
+      if (sfBest.m2 && (sfBest.score - sfBest.s2) < 300) {
+        const m2Loss = -seeMove(fen, sfBest.m2.slice(0, 2), sfBest.m2.slice(2, 4))
+        if (m2Loss < 450) return { uciMove: sfBest.m2, source: 'sf-inaccuracy' }
+      }
     }
     return { uciMove: sfBest.move, source: 'sf' }
   }
 
-  const lowTime = effSecs !== null && effSecs < 8
+  const lowTimeThresh = isBulletGame ? 5 : gameCategory === 'blitz' ? 8 : 15
+  const lowTime = effSecs !== null && effSecs < lowTimeThresh
   const checkDepth = lowTime ? 2 : isBulletGame ? 4 : 8
 
   const [maiaMove, sfBest] = await Promise.all([
@@ -803,12 +809,18 @@ async function getComboMove(fen, sfEngine, maiaEngine, suboptimal, lateGame, eff
 
   // Инъекция неточностей — срабатывает ВСЕГДА (в т.ч. когда Maia=SF), кроме нехватки времени
   // Не применяем если уже выбрали SF-override (безопасность важнее)
+  // Пороги подняты (300/500cp) чтобы injection работал в выигрышных позициях тоже.
+  // SEE-фильтр: не играем m2/m3 если они физически вешают фигуру ≥450cp.
   const inaccRate = getInaccPct() / 100
   if (chosenSource !== 'sf-override' && !lowTime && inaccRate > 0 && Math.random() < inaccRate) {
-    if (sfBest.m3 && (sfBest.score - sfBest.s3) < 250 && Math.random() < 0.30)
-      return { uciMove: sfBest.m3, source: 'sf-mistake' }
-    if (sfBest.m2 && (sfBest.score - sfBest.s2) < 150)
-      return { uciMove: sfBest.m2, source: 'sf-inaccuracy' }
+    if (sfBest.m3 && (sfBest.score - sfBest.s3) < 500 && Math.random() < 0.25) {
+      const m3Loss = -seeMove(fen, sfBest.m3.slice(0, 2), sfBest.m3.slice(2, 4))
+      if (m3Loss < 450) return { uciMove: sfBest.m3, source: 'sf-mistake' }
+    }
+    if (sfBest.m2 && (sfBest.score - sfBest.s2) < 300) {
+      const m2Loss = -seeMove(fen, sfBest.m2.slice(0, 2), sfBest.m2.slice(2, 4))
+      if (m2Loss < 450) return { uciMove: sfBest.m2, source: 'sf-inaccuracy' }
+    }
   }
 
   return { uciMove: chosenMove, source: chosenSource }
