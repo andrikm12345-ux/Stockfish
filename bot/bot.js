@@ -39,6 +39,7 @@ const SITE = (process.env.SITE || 'lichess').toLowerCase()
 let AUTO_DEPTH = true
 let isBulletGame = false
 let gameCategory = 'blitz'
+let gameTotalSecs = 0
 // Инъекция неточностей — переопределяет дефолты по категории игры (null = авто)
 let INACCURACY_OVERRIDE = null
 let lastEngineScore = 0
@@ -289,9 +290,10 @@ async function detectGameType(page) {
   let totalSecs = await readTimeControlSecs(page)
   const source  = totalSecs !== null ? 'заголовок' : 'часы'
   if (totalSecs === null) totalSecs = await readClockSecs(page)
-  if (totalSecs === null) { isBulletGame = false; gameCategory = 'blitz'; return }
+  if (totalSecs === null) { isBulletGame = false; gameCategory = 'blitz'; gameTotalSecs = 0; return }
   isBulletGame = totalSecs < 180
   gameCategory = totalSecs < 180 ? 'bullet' : totalSecs < 600 ? 'blitz' : 'rapid'
+  gameTotalSecs = totalSecs
   if (!AUTO_DEPTH) {
     console.log(`Контроль: ${Math.round(totalSecs)}с [${gameCategory}] (${source}) | Depth:${DEPTH} (вручную)`)
     return
@@ -781,9 +783,19 @@ async function getComboMove(fen, sfEngine, maiaEngine, suboptimal, lateGame, eff
   if (drop > 350) return { uciMove: sfBest.move, source: 'sf-override' }
 
   // Иногда играем m2/m3 вместо хода Maia — имитация человеческих неточностей
-  const inaccRate = INACCURACY_OVERRIDE !== null
-    ? INACCURACY_OVERRIDE
-    : (gameCategory === 'rapid' ? 0.15 : gameCategory === 'blitz' ? 0.12 : 0)
+  // Авто: пуля=8%, блиц 3+0=18%, блиц 5+0/5+3=14%, рапид=10%
+  let inaccRate
+  if (INACCURACY_OVERRIDE !== null) {
+    inaccRate = INACCURACY_OVERRIDE
+  } else if (gameCategory === 'bullet') {
+    inaccRate = 0.08
+  } else if (gameCategory === 'blitz') {
+    inaccRate = gameTotalSecs > 0 && gameTotalSecs < 270 ? 0.18 : 0.14
+  } else if (gameCategory === 'rapid') {
+    inaccRate = 0.10
+  } else {
+    inaccRate = 0
+  }
   if (!lowTime && inaccRate > 0 && Math.random() < inaccRate) {
     if (sfBest.m3 && (sfBest.score - sfBest.s3) < 250 && Math.random() < 0.30)
       return { uciMove: sfBest.m3, source: 'sf-mistake' }
@@ -816,9 +828,12 @@ async function runSession(engine, maiaEngine, isLichess, siteUrl, boardSel, read
       const myColor = fl ? 'b' : 'w'
       errorStreakLeft = 0
       await detectGameType(page)
+      const autoInaccPct = gameCategory === 'bullet' ? 8
+        : gameCategory === 'blitz' ? (gameTotalSecs > 0 && gameTotalSecs < 270 ? 18 : 14)
+        : gameCategory === 'rapid' ? 10 : 0
       const inaccLabel = INACCURACY_OVERRIDE !== null
-        ? `i=${Math.round(INACCURACY_OVERRIDE*100)}%`
-        : 'i=авто'
+        ? `i=${Math.round(INACCURACY_OVERRIDE*100)}% (ручной)`
+        : `i=${autoInaccPct}% (авто)`
       const modeInfo = maiaEngine
         ? `Режим: Maia+SF | ${inaccLabel}`
         : `Depth:${DEPTH} Skill:${SKILL}${AUTO_DEPTH ? ' [авто]' : ''} | ${inaccLabel}`
