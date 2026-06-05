@@ -665,7 +665,54 @@ async function openBrowser(siteUrl) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Комбо-ход: Maia делает ходы, Stockfish страхует от зевков (порог >350cp)
+// Static Exchange Evaluation — ловит зевки материала БЕЗ зависимости от SF.
+// Детерминированно: ферзь/ладья физически не могут быть отданы зря.
+// ─────────────────────────────────────────────────────────────────────────────
+const SEE_VAL = { p: 100, n: 320, b: 330, r: 500, q: 900, k: 20000 }
+
+// Сколько материала выигрывает сторона-на-ходу серией разменов на клетке `square`.
+// Рекурсивный SEE: бьём наименее ценной фигурой, на каждом шаге можно «остановиться».
+function seeOnSquare(chess, square, depthGuard = 0) {
+  if (depthGuard > 12) return 0
+  const caps = chess.moves({ verbose: true }).filter(m => m.to === square && m.captured)
+  if (!caps.length) return 0
+  caps.sort((a, b) => SEE_VAL[a.piece] - SEE_VAL[b.piece])
+  const cap = caps[0]
+  const gained = SEE_VAL[cap.captured] || 0
+  const next = new Chess(chess.fen())
+  try { if (!next.move({ from: cap.from, to: cap.to, promotion: 'q' })) return 0 } catch { return 0 }
+  return Math.max(0, gained - seeOnSquare(next, square, depthGuard + 1))
+}
+
+// Чистый материальный итог конкретного хода (с точки зрения того, кто ходит).
+// Отрицательное значение = ход теряет материал (вешает фигуру / плохой размен).
+function seeMove(fen, from, to) {
+  const chess = new Chess(fen)
+  const target = chess.get(to)
+  const captured = target ? (SEE_VAL[target.type] || 0) : 0
+  try { if (!chess.move({ from, to, promotion: 'q' })) return 0 } catch { return 0 }
+  return captured - seeOnSquare(chess, to)  // соперник теперь на ходу, отыгрывает на `to`
+}
+
+// Худшая немедленная потеря материала ПОСЛЕ хода Maia: проверяем все клетки,
+// которые соперник может взять, КРОМЕ клетки куда сходила Maia (её считает seeMove).
+// Ловит вскрытые нападения и фигуры, оставленные под боем в другом месте.
+function maxOtherHang(chessAfterMove, excludeSquare) {
+  const targets = new Set(
+    chessAfterMove.moves({ verbose: true })
+      .filter(m => m.captured && m.to !== excludeSquare)
+      .map(m => m.to)
+  )
+  let worst = 0
+  for (const sq of targets) {
+    const v = seeOnSquare(chessAfterMove, sq)
+    if (v > worst) worst = v
+  }
+  return worst
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Комбо-ход: Maia делает ходы, Stockfish + SEE страхуют от зевков
 // Если maiaEngine = null — работает как чистый Stockfish (без изменений)
 // ─────────────────────────────────────────────────────────────────────────────
 async function getComboMove(fen, sfEngine, maiaEngine, suboptimal, lateGame, effSecs) {
@@ -699,7 +746,24 @@ async function getComboMove(fen, sfEngine, maiaEngine, suboptimal, lateGame, eff
   const evalAfterMaia = await sfEngine.getEval(testChess.fen(), checkDepth)
   const drop = evalBefore + evalAfterMaia
 
-  console.log(`  [debug] maia=${maiaMove} sf=${sfBest.move} before=${evalBefore} after=${evalAfterMaia} drop=${drop} depth=${checkDepth}`)
+  // ── ЖЁСТКАЯ страховка от зевков материала (SEE, не зависит от глубины/таймаутов SF) ──
+  // maiaLoss > 0 = ход Maia теряет материал на клетке назначения; otherHang = потеря в др. месте
+  const maiaLoss = -seeMove(fen, maiaMove.slice(0, 2), maiaMove.slice(2, 4))
+  const otherHang = maxOtherHang(testChess, maiaMove.slice(2, 4))
+  const worstLoss = Math.max(maiaLoss, otherHang)
+
+  console.log(`  [debug] maia=${maiaMove} sf=${sfBest.move} before=${evalBefore} after=${evalAfterMaia} drop=${drop} SEE=${worstLoss} depth=${checkDepth}`)
+
+  // Ладья/ферзь под боем зря — НИКОГДА не отдаём (SF уже выбрал бы это, если бы это была жертва)
+  if (worstLoss >= 450) {
+    console.log(`  [override] Maia вешает материал SEE=${worstLoss} → SF ${sfBest.move}`)
+    return { uciMove: sfBest.move, source: 'sf-override' }
+  }
+  // Лёгкая фигура под боем — отдаём только если оценка SF тоже против хода (не звучная жертва)
+  if (worstLoss >= 250 && drop > 60) {
+    console.log(`  [override] Maia вешает фигуру SEE=${worstLoss} drop=${drop} → SF ${sfBest.move}`)
+    return { uciMove: sfBest.move, source: 'sf-override' }
+  }
 
   if (drop > 350) return { uciMove: sfBest.move, source: 'sf-override' }
 
