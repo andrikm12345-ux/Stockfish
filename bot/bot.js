@@ -977,6 +977,7 @@ async function runSession(engine, maiaEngine, isLichess, siteUrl, boardSel, read
       let stuckFen = ''
       let stuckSince = 0
       let gameFinished = false
+      let lastClickFrom = null, lastClickTo = null, clickRetries = 0
 
       while (true) {
         await page.waitForTimeout(250)
@@ -999,8 +1000,20 @@ async function runSession(engine, maiaEngine, isLichess, siteUrl, boardSel, read
             ? Math.max(300, secsNow * 200)   // при < 5с: 300-1000мс (20% от остатка)
             : isBulletGame ? 2000 : gameCategory === 'blitz' ? 4000 : 6000
           if (chess.turn() === myColor && stuckFen === fen && stuckSince > 0 && Date.now() - stuckSince > stuckMs) {
-            console.log(`[авто-рестарт] Ход не прошёл за ${stuckMs}мс — перезапуск`)
-            RESTART = true
+            if (lastClickFrom && clickRetries < 2) {
+              clickRetries++
+              console.log(`[повтор клика ${clickRetries}/2] ${lastClickFrom}→${lastClickTo}`)
+              const retryBox = await page.locator(boardSel).first().boundingBox()
+              if (retryBox) {
+                await clickSquare(page, lastClickFrom, retryBox, flipped, true)
+                await page.waitForTimeout(60 + Math.random() * 60)
+                await clickSquare(page, lastClickTo, retryBox, flipped, true)
+              }
+              stuckSince = Date.now()
+            } else {
+              console.log(`[авто-рестарт] Ход не прошёл за ${stuckMs}мс — перезапуск`)
+              RESTART = true
+            }
           }
           continue
         }
@@ -1130,6 +1143,7 @@ async function runSession(engine, maiaEngine, isLichess, siteUrl, boardSel, read
         await page.waitForTimeout(turbo ? 5 + Math.random() * 10 : pressingOpp ? 20 + Math.random() * 30 : 60 + Math.random() * 80)
         await clickSquare(page, to, boardBox, flipped, turbo)
         stuckFen = fen; stuckSince = Date.now()  // фиксируем попытку хода
+        lastClickFrom = from; lastClickTo = to; clickRetries = 0
 
         if (promo && boardBox) {
           await page.waitForTimeout(turbo ? 60 + Math.random() * 60 : 250 + Math.random() * 150)
