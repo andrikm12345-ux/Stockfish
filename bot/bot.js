@@ -39,6 +39,8 @@ const SITE = (process.env.SITE || 'lichess').toLowerCase()
 let AUTO_DEPTH = true
 let isBulletGame = false
 let gameCategory = 'blitz'
+// Инъекция неточностей — переопределяет дефолты по категории игры (null = авто)
+let INACCURACY_OVERRIDE = null
 let lastEngineScore = 0
 let PAUSED = false
 let lastPauseToggle = 0
@@ -172,11 +174,22 @@ function startCommandListener(page) {
       } else {
         console.log('\n→ Нечего восстанавливать')
       }
+    } else if (cmd === 'i') {
+      if (!val || val === 'a') {
+        INACCURACY_OVERRIDE = null
+        console.log('\n→ Инъекция: авто (пуля=0%, блиц=12%, рапид=15%)')
+      } else {
+        const pct = parseFloat(val)
+        if (!isNaN(pct) && pct >= 0 && pct <= 100) {
+          INACCURACY_OVERRIDE = pct / 100
+          console.log(`\n→ Инъекция неточностей = ${pct}%`)
+        }
+      }
     } else if (cmd === 'g' && val) {
       console.log(`\n→ Перехожу на: ${val}`)
       page.goto(val).catch(() => {})
     } else if (line.trim()) {
-      console.log('Команды: d <глубина>   s <скилл 0-20>   a (авто-глубина)   p (пауза/продолжить)   r (рестарт)   n (тупой режим)   b (вернуть)   g <ссылка>')
+      console.log('Команды: d <глубина>   s <скилл 0-20>   a (авто-глубина)   i <% | a>   p (пауза/продолжить)   r (рестарт)   n (тупой режим)   b (вернуть)   g <ссылка>')
     }
   })
 }
@@ -768,7 +781,9 @@ async function getComboMove(fen, sfEngine, maiaEngine, suboptimal, lateGame, eff
   if (drop > 350) return { uciMove: sfBest.move, source: 'sf-override' }
 
   // Иногда играем m2/m3 вместо хода Maia — имитация человеческих неточностей
-  const inaccRate = gameCategory === 'rapid' ? 0.15 : gameCategory === 'blitz' ? 0.12 : 0
+  const inaccRate = INACCURACY_OVERRIDE !== null
+    ? INACCURACY_OVERRIDE
+    : (gameCategory === 'rapid' ? 0.15 : gameCategory === 'blitz' ? 0.12 : 0)
   if (!lowTime && inaccRate > 0 && Math.random() < inaccRate) {
     if (sfBest.m3 && (sfBest.score - sfBest.s3) < 250 && Math.random() < 0.30)
       return { uciMove: sfBest.m3, source: 'sf-mistake' }
@@ -801,9 +816,12 @@ async function runSession(engine, maiaEngine, isLichess, siteUrl, boardSel, read
       const myColor = fl ? 'b' : 'w'
       errorStreakLeft = 0
       await detectGameType(page)
+      const inaccLabel = INACCURACY_OVERRIDE !== null
+        ? `i=${Math.round(INACCURACY_OVERRIDE*100)}%`
+        : 'i=авто'
       const modeInfo = maiaEngine
-        ? `Режим: Maia+SF (SF depth:${DEPTH} — страховка)`
-        : `Depth:${DEPTH} Skill:${SKILL}${AUTO_DEPTH ? ' [авто]' : ''}`
+        ? `Режим: Maia+SF | ${inaccLabel}`
+        : `Depth:${DEPTH} Skill:${SKILL}${AUTO_DEPTH ? ' [авто]' : ''} | ${inaccLabel}`
       console.log(`Играю за: ${myColor === 'w' ? '♔ Белых' : '♚ Чёрных'} | ${modeInfo}`)
 
       let lastFen = ''
