@@ -43,8 +43,10 @@ let gameTotalSecs = 0
 // Инъекция неточностей — переопределяет дефолты по категории игры (null = авто)
 let INACCURACY_OVERRIDE = null
 let liveMoveAccuracies = []  // точность по каждому нашему ходу (0–100, текущая партия)
-let liveAdjust = 1.0         // адаптивный множитель инъекции (цель: точность 70–85%)
+let liveAdjust = 1.0         // адаптивный множитель инъекции
 let liveLastInjectAt = -99   // индекс последней инъекции (кулдаун 4 хода)
+let gameAccuracyTarget = 77  // целевая точность текущей партии (рандом 68–84%)
+let gameBlunderLeft = 0      // запланированный «большой промах» за партию (0 или 1)
 let lastEngineScore = 0
 let PAUSED = false
 let lastPauseToggle = 0
@@ -314,16 +316,18 @@ function calcLiveAccuracy() {
   return liveMoveAccuracies.reduce((a, b) => a + b, 0) / liveMoveAccuracies.length
 }
 
-// Адаптирует liveAdjust чтобы держать точность в диапазоне 70–85%
+// Адаптирует liveAdjust чтобы держать точность около gameAccuracyTarget (68–84%)
 function updateLiveAdjust() {
   if (liveMoveAccuracies.length < 5) return
   const acc = calcLiveAccuracy()
-  if (acc > 95)       liveAdjust = Math.min(2.5, liveAdjust * 1.12)
-  else if (acc > 90)  liveAdjust = Math.min(2.5, liveAdjust * 1.06)
-  else if (acc > 85)  liveAdjust = Math.min(2.5, liveAdjust * 1.03)
-  else if (acc < 66)  liveAdjust = Math.max(0.3, liveAdjust * 0.80)
-  else if (acc < 70)  liveAdjust = Math.max(0.4, liveAdjust * 0.92)
-  else                liveAdjust = liveAdjust * 0.95 + 1.0 * 0.05
+  const hi = gameAccuracyTarget      // верхняя граница цели, например 76%
+  const lo = gameAccuracyTarget - 8  // нижняя граница цели, например 68%
+  if      (acc > hi + 10) liveAdjust = Math.min(2.5, liveAdjust * 1.12)
+  else if (acc > hi + 5)  liveAdjust = Math.min(2.5, liveAdjust * 1.06)
+  else if (acc > hi)      liveAdjust = Math.min(2.5, liveAdjust * 1.03)
+  else if (acc < lo - 4)  liveAdjust = Math.max(0.3, liveAdjust * 0.80)
+  else if (acc < lo)      liveAdjust = Math.max(0.4, liveAdjust * 0.92)
+  else                    liveAdjust = liveAdjust * 0.95 + 1.0 * 0.05
 }
 
 async function detectGameType(page) {
@@ -812,9 +816,19 @@ async function getComboMove(fen, sfEngine, maiaEngine, suboptimal, lateGame, eff
   if (!maiaEngine) {
     const sfBest = await sfEngine.getBest(fen, isBulletGame ? 4 : 8)
     if (!sfBest.move) return { uciMove: null, source: 'sf', estMvAccuracy: 100 }
+    const winning = sfBest.score > 200, losing = sfBest.score < -100
     const inaccRate = Math.min(0.60, (getInaccPct() / 100) * liveAdjust)
     const injectCooldownSF = (liveMoveAccuracies.length - liveLastInjectAt) < 4
-    if (!lowTimeSF && !injectCooldownSF && inaccRate > 0 && Math.random() < inaccRate) {
+    // Большой промах — раз за игру, после хода 6, с шансом 5% на каждый ход
+    if (!lowTimeSF && !injectCooldownSF && gameBlunderLeft > 0 && liveMoveAccuracies.length > 6 && Math.random() < 0.05) {
+      if (sfBest.m3 && (sfBest.score - sfBest.s3) < 650) {
+        const m3Loss = -seeMove(fen, sfBest.m3.slice(0, 2), sfBest.m3.slice(2, 4))
+        if (m3Loss < 500) { gameBlunderLeft = 0; liveLastInjectAt = liveMoveAccuracies.length; return { uciMove: sfBest.m3, source: 'sf-mistake', estMvAccuracy: movAccuracy(sfBest.score, sfBest.s3) } }
+      }
+    }
+    // Инъекция в critical moment: 7% шанс ошибиться даже когда позиция выигрышная
+    const criticalInject = winning && !losing && !injectCooldownSF && !lowTimeSF && Math.random() < 0.07
+    if (!lowTimeSF && !injectCooldownSF && (criticalInject || (!winning && inaccRate > 0 && Math.random() < inaccRate))) {
       if (sfBest.m3 && (sfBest.score - sfBest.s3) < 500 && Math.random() < 0.25) {
         const m3Loss = -seeMove(fen, sfBest.m3.slice(0, 2), sfBest.m3.slice(2, 4))
         if (m3Loss < 450) { liveLastInjectAt = liveMoveAccuracies.length; return { uciMove: sfBest.m3, source: 'sf-mistake', estMvAccuracy: movAccuracy(sfBest.score, sfBest.s3) } }
@@ -890,7 +904,20 @@ async function getComboMove(fen, sfEngine, maiaEngine, suboptimal, lateGame, eff
   const inaccRate = Math.min(0.60, (getInaccPct() / 100) * liveAdjust)
   const injectCooldown = (liveMoveAccuracies.length - liveLastInjectAt) < 4
   const maiaAlreadyBad = chosenSource === 'maia' && maiaMvAccuracy < 80
-  if (chosenSource !== 'sf-override' && !lowTime && !injectCooldown && !maiaAlreadyBad && inaccRate > 0 && Math.random() < inaccRate) {
+  const winning = sfBest.score > 200, losing = sfBest.score < -100
+  // Запланированный промах — один раз за партию, после хода 6, ~5% шанс за ход
+  if (chosenSource !== 'sf-override' && !lowTime && !injectCooldown && gameBlunderLeft > 0 && liveMoveAccuracies.length > 6 && Math.random() < 0.05) {
+    if (sfBest.m3 && (sfBest.score - sfBest.s3) < 650) {
+      const m3Loss = -seeMove(fen, sfBest.m3.slice(0, 2), sfBest.m3.slice(2, 4))
+      if (m3Loss < 500) {
+        gameBlunderLeft = 0; liveLastInjectAt = liveMoveAccuracies.length
+        return { uciMove: sfBest.m3, source: 'sf-mistake', estMvAccuracy: movAccuracy(sfBest.score, sfBest.s3) }
+      }
+    }
+  }
+  // Инъекция в критические моменты: 7% даже когда выигрываем — Irwin ожидает это от человека
+  const criticalInject = winning && !losing && !injectCooldown && !lowTime && Math.random() < 0.07
+  if (chosenSource !== 'sf-override' && !lowTime && !injectCooldown && !maiaAlreadyBad && (criticalInject || (!winning && inaccRate > 0 && Math.random() < inaccRate))) {
     if (sfBest.m3 && (sfBest.score - sfBest.s3) < 500 && Math.random() < 0.25) {
       const m3Loss = -seeMove(fen, sfBest.m3.slice(0, 2), sfBest.m3.slice(2, 4))
       if (m3Loss < 450) {
@@ -933,6 +960,8 @@ async function runSession(engine, maiaEngine, isLichess, siteUrl, boardSel, read
       errorStreakLeft = 0
       await detectGameType(page)
       liveMoveAccuracies = []; liveAdjust = 1.0; liveLastInjectAt = -99
+      gameAccuracyTarget = 68 + Math.floor(Math.random() * 17)  // 68–84%
+      gameBlunderLeft = Math.random() < 0.30 ? 1 : 0
       const inaccLabel = INACCURACY_OVERRIDE !== null
         ? `i=${getInaccPct()}% (ручной)`
         : `i=${getInaccPct()}% (авто)`
@@ -1029,6 +1058,9 @@ async function runSession(engine, maiaEngine, isLichess, siteUrl, boardSel, read
 
         const legalCount = !book ? chess.moves().length : 0
         const isComplex  = legalCount > 32
+        // Сложные позиции → дольше думаем (Irwin проверяет корреляцию времени со сложностью)
+        if (isComplex && !book && !isLongThink && (effSecs === null || effSecs > 8))
+          delay *= 1.2 + Math.random() * 0.2
         const isLateGame = moveNum > 30
 
         // Серия ошибок — только в SF режиме, у Maia свои человеческие ошибки
