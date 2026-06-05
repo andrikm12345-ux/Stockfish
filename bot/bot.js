@@ -1152,7 +1152,7 @@ async function runSession(engine, maiaEngine, isLichess, siteUrl, boardSel, read
         }
 
         const pmMinSecs = isBulletGame ? 8 : 18
-        const pmChance  = isBulletGame ? 0.15 : 0.10
+        const pmChance  = isBulletGame ? 0.25 : 0.12
         const pmAllowed = (isBulletGame || gameCategory === 'blitz')
         if (pmAllowed && !promo && !turbo && effSecs !== null && effSecs > pmMinSecs && Math.random() < pmChance) {
           const origDepth = DEPTH, origSkill = SKILL
@@ -1163,8 +1163,8 @@ async function runSession(engine, maiaEngine, isLichess, siteUrl, boardSel, read
             const fenAfterOur = chessAfter.fen()
             const oppLegalMoves = chessAfter.moves({ verbose: true })
 
-            // Пропускаем только в очень открытых хаотичных позициях
-            if (oppLegalMoves.length > 30) throw new Error('skip')
+            // Пропускаем только в открытых хаотичных позициях (много форсированных вариантов)
+            if (oppLegalMoves.length > 45) throw new Error('skip')
 
             // Проверка: наш ферзь не под ударом
             const board = chessAfter.board()
