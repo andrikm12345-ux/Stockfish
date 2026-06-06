@@ -817,8 +817,27 @@ async function getComboMove(fen, sfEngine, maiaEngine, suboptimal, lateGame, eff
     const sfBest = await sfEngine.getBest(fen, isBulletGame ? 4 : 8)
     if (!sfBest.move) return { uciMove: null, source: 'sf', estMvAccuracy: 100 }
     const winning = sfBest.score > 200, losing = sfBest.score < -100
-    const inaccRate = Math.min(0.60, (getInaccPct() / 100) * liveAdjust)
+    // Ambiguity: насколько m1 лучше m2 (Irwin смотрит этот feature)
+    const diff12SF = sfBest.m2 ? Math.max(0, sfBest.score - sfBest.s2) : 999
+    const ambMultSF = diff12SF < 10 ? 2.5 : diff12SF < 20 ? 2.0 : diff12SF < 35 ? 1.5 : diff12SF < 60 ? 1.2 : 1.0
+    // Фаза партии: в дебюте меньше ошибок (Kaladin анализирует move quality по фазам)
+    const phaseMultSF = liveMoveAccuracies.length < 5 ? 0.5 : liveMoveAccuracies.length < 10 ? 0.8 : 1.0
+    const inaccRate = Math.min(0.65, (getInaccPct() / 100) * liveAdjust * ambMultSF * phaseMultSF)
     const injectCooldownSF = (liveMoveAccuracies.length - liveLastInjectAt) < 4
+    // Rank-4+ ход: в очень неоднозначных позициях Irwin ожидает что человек иногда выберет нетоповый ход
+    if (diff12SF < 20 && !lowTimeSF && !injectCooldownSF && Math.random() < 0.04) {
+      const chPos = new Chess(fen)
+      const topSet = new Set([sfBest.move, sfBest.m2, sfBest.m3].filter(Boolean))
+      const quietAlt = chPos.moves({ verbose: true }).filter(m =>
+        !topSet.has(m.from + m.to + (m.promotion || '')) && !m.captured && m.piece !== 'k'
+      )
+      if (quietAlt.length > 0) {
+        const pick = quietAlt[Math.floor(Math.random() * quietAlt.length)]
+        const uci = pick.from + pick.to + (pick.promotion || '')
+        liveLastInjectAt = liveMoveAccuracies.length
+        return { uciMove: uci, source: 'sf-mistake', estMvAccuracy: movAccuracy(sfBest.score, sfBest.score - 50 - Math.floor(Math.random() * 80)) }
+      }
+    }
     // Большой промах — раз за игру, после хода 6, с шансом 5% на каждый ход
     if (!lowTimeSF && !injectCooldownSF && gameBlunderLeft > 0 && liveMoveAccuracies.length > 6 && Math.random() < 0.05) {
       if (sfBest.m3 && (sfBest.score - sfBest.s3) < 650) {
@@ -901,10 +920,27 @@ async function getComboMove(fen, sfEngine, maiaEngine, suboptimal, lateGame, eff
 
   // Инъекция неточностей — кроме: нехватка времени, sf-override, кулдаун 4 хода,
   // и если Maia уже играет плохо (её ход уже даёт < 80% точности — не добавляем поверх).
-  const inaccRate = Math.min(0.60, (getInaccPct() / 100) * liveAdjust)
+  const diff12 = sfBest.m2 ? Math.max(0, sfBest.score - sfBest.s2) : 999
+  const ambMult = diff12 < 10 ? 2.5 : diff12 < 20 ? 2.0 : diff12 < 35 ? 1.5 : diff12 < 60 ? 1.2 : 1.0
+  const phaseMult = liveMoveAccuracies.length < 5 ? 0.5 : liveMoveAccuracies.length < 10 ? 0.8 : 1.0
+  const inaccRate = Math.min(0.65, (getInaccPct() / 100) * liveAdjust * ambMult * phaseMult)
   const injectCooldown = (liveMoveAccuracies.length - liveLastInjectAt) < 4
   const maiaAlreadyBad = chosenSource === 'maia' && maiaMvAccuracy < 80
   const winning = sfBest.score > 200, losing = sfBest.score < -100
+  // Rank-4+ ход: в очень неоднозначных позициях Irwin ожидает нетоповые ходы от человека
+  if (chosenSource !== 'sf-override' && diff12 < 20 && !lowTime && !injectCooldown && !maiaAlreadyBad && Math.random() < 0.04) {
+    const chPos = new Chess(fen)
+    const topSet = new Set([sfBest.move, sfBest.m2, sfBest.m3].filter(Boolean))
+    const quietAlt = chPos.moves({ verbose: true }).filter(m =>
+      !topSet.has(m.from + m.to + (m.promotion || '')) && !m.captured && m.piece !== 'k'
+    )
+    if (quietAlt.length > 0) {
+      const pick = quietAlt[Math.floor(Math.random() * quietAlt.length)]
+      const uci = pick.from + pick.to + (pick.promotion || '')
+      liveLastInjectAt = liveMoveAccuracies.length
+      return { uciMove: uci, source: 'sf-mistake', estMvAccuracy: movAccuracy(sfBest.score, sfBest.score - 50 - Math.floor(Math.random() * 80)) }
+    }
+  }
   // Запланированный промах — один раз за партию, после хода 6, ~5% шанс за ход
   if (chosenSource !== 'sf-override' && !lowTime && !injectCooldown && gameBlunderLeft > 0 && liveMoveAccuracies.length > 6 && Math.random() < 0.05) {
     if (sfBest.m3 && (sfBest.score - sfBest.s3) < 650) {
@@ -969,6 +1005,7 @@ async function runSession(engine, maiaEngine, isLichess, siteUrl, boardSel, read
         ? `Режим: Maia+SF | ${inaccLabel}`
         : `Depth:${DEPTH} Skill:${SKILL}${AUTO_DEPTH ? ' [авто]' : ''} | ${inaccLabel}`
       console.log(`Играю за: ${myColor === 'w' ? '♔ Белых' : '♚ Чёрных'} | ${modeInfo}`)
+      console.log(`[!] Держи Chrome в фокусе — lila-ws фиксирует blur events (переключение окон)`)
 
       let lastFen = ''
       let fastStreakLeft = 0
