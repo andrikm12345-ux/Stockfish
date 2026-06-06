@@ -45,8 +45,9 @@ let INACCURACY_OVERRIDE = null
 let liveMoveAccuracies = []  // точность по каждому нашему ходу (0–100, текущая партия)
 let liveAdjust = 1.0         // адаптивный множитель инъекции
 let liveLastInjectAt = -99   // индекс последней инъекции (кулдаун 4 хода)
-let gameAccuracyTarget = 77  // целевая точность текущей партии (рандом 68–84%)
+let gameAccuracyTarget = 77  // целевая точность текущей партии (рандом 68–84% или 55–67%)
 let gameBlunderLeft = 0      // запланированный «большой промах» за партию (0 или 1)
+let winningStreakMoves = 0   // сколько ходов подряд позиция явно выигрышная (>400cp)
 let lastEngineScore = 0
 let PAUSED = false
 let lastPauseToggle = 0
@@ -721,7 +722,9 @@ async function openBrowser(siteUrl) {
   const chromeExe = chromePaths.find(p => fs.existsSync(p))
   if (!chromeExe) throw new Error('Google Chrome не найден — установи Chrome.')
 
-  const debugProfile = path.join(__dirname, 'chrome-bot-profile')
+  // Пункт 3: отдельный профиль на каждый аккаунт — lila autoAltPrintReport ловит общий fingerprint
+  const profileName = process.env.PROFILE || 'default'
+  const debugProfile = path.join(__dirname, `chrome-profile-${profileName}`)
   console.log('Запускаю отдельное окно Chrome для бота...')
   spawn(chromeExe, [
     '--remote-debugging-port=9222',
@@ -817,6 +820,8 @@ async function getComboMove(fen, sfEngine, maiaEngine, suboptimal, lateGame, eff
     const sfBest = await sfEngine.getBest(fen, isBulletGame ? 4 : 8)
     if (!sfBest.move) return { uciMove: null, source: 'sf', estMvAccuracy: 100 }
     const winning = sfBest.score > 200, losing = sfBest.score < -100
+    // Пункт 5: трекинг winning streak для opportunity metric (Kaladin)
+    if (sfBest.score > 400) winningStreakMoves++ ; else winningStreakMoves = 0
     // Ambiguity: насколько m1 лучше m2 (Irwin смотрит этот feature)
     const diff12SF = sfBest.m2 ? Math.max(0, sfBest.score - sfBest.s2) : 999
     const ambMultSF = diff12SF < 10 ? 2.5 : diff12SF < 20 ? 2.0 : diff12SF < 35 ? 1.5 : diff12SF < 60 ? 1.2 : 1.0
@@ -824,8 +829,8 @@ async function getComboMove(fen, sfEngine, maiaEngine, suboptimal, lateGame, eff
     const phaseMultSF = liveMoveAccuracies.length < 5 ? 0.5 : liveMoveAccuracies.length < 10 ? 0.8 : 1.0
     const inaccRate = Math.min(0.65, (getInaccPct() / 100) * liveAdjust * ambMultSF * phaseMultSF)
     const injectCooldownSF = (liveMoveAccuracies.length - liveLastInjectAt) < 4
-    // Rank-4+ ход: в очень неоднозначных позициях Irwin ожидает что человек иногда выберет нетоповый ход
-    if (diff12SF < 20 && !lowTimeSF && !injectCooldownSF && Math.random() < 0.04) {
+    // Пункт 7: rank-4+ ход — 6% (глубина 4.5M нод Irwin требует реалистичный rank distribution)
+    if (diff12SF < 20 && !lowTimeSF && !injectCooldownSF && Math.random() < 0.06) {
       const chPos = new Chess(fen)
       const topSet = new Set([sfBest.move, sfBest.m2, sfBest.m3].filter(Boolean))
       const quietAlt = chPos.moves({ verbose: true }).filter(m =>
@@ -847,12 +852,16 @@ async function getComboMove(fen, sfEngine, maiaEngine, suboptimal, lateGame, eff
     }
     // Инъекция в critical moment: 7% шанс ошибиться даже когда позиция выигрышная
     const criticalInject = winning && !losing && !injectCooldownSF && !lowTimeSF && Math.random() < 0.07
-    if (!lowTimeSF && !injectCooldownSF && (criticalInject || (!winning && inaccRate > 0 && Math.random() < inaccRate))) {
-      if (sfBest.m3 && (sfBest.score - sfBest.s3) < 500 && Math.random() < 0.25) {
+    // Пункт 5: opportunity metric — когда долго выигрываем, Kaladin ожидает что человек иногда упускает победу
+    const missConversionSF = winningStreakMoves >= 5 && sfBest.score > 400 && !injectCooldownSF && !lowTimeSF && Math.random() < 0.08
+    if (!lowTimeSF && !injectCooldownSF && (criticalInject || missConversionSF || (!winning && inaccRate > 0 && Math.random() < inaccRate))) {
+      const m3cap = missConversionSF ? 700 : 500
+      const m2cap = missConversionSF ? 450 : 300
+      if (sfBest.m3 && (sfBest.score - sfBest.s3) < m3cap && Math.random() < 0.25) {
         const m3Loss = -seeMove(fen, sfBest.m3.slice(0, 2), sfBest.m3.slice(2, 4))
-        if (m3Loss < 450) { liveLastInjectAt = liveMoveAccuracies.length; return { uciMove: sfBest.m3, source: 'sf-mistake', estMvAccuracy: movAccuracy(sfBest.score, sfBest.s3) } }
+        if (m3Loss < 500) { liveLastInjectAt = liveMoveAccuracies.length; return { uciMove: sfBest.m3, source: 'sf-mistake', estMvAccuracy: movAccuracy(sfBest.score, sfBest.s3) } }
       }
-      if (sfBest.m2 && (sfBest.score - sfBest.s2) < 300) {
+      if (sfBest.m2 && (sfBest.score - sfBest.s2) < m2cap) {
         const m2Loss = -seeMove(fen, sfBest.m2.slice(0, 2), sfBest.m2.slice(2, 4))
         if (m2Loss < 450) { liveLastInjectAt = liveMoveAccuracies.length; return { uciMove: sfBest.m2, source: 'sf-inaccuracy', estMvAccuracy: movAccuracy(sfBest.score, sfBest.s2) } }
       }
@@ -927,8 +936,10 @@ async function getComboMove(fen, sfEngine, maiaEngine, suboptimal, lateGame, eff
   const injectCooldown = (liveMoveAccuracies.length - liveLastInjectAt) < 4
   const maiaAlreadyBad = chosenSource === 'maia' && maiaMvAccuracy < 80
   const winning = sfBest.score > 200, losing = sfBest.score < -100
-  // Rank-4+ ход: в очень неоднозначных позициях Irwin ожидает нетоповые ходы от человека
-  if (chosenSource !== 'sf-override' && diff12 < 20 && !lowTime && !injectCooldown && !maiaAlreadyBad && Math.random() < 0.04) {
+  // Пункт 5: трекинг winning streak (в Maia+SF пути)
+  if (sfBest.score > 400) winningStreakMoves++ ; else winningStreakMoves = 0
+  // Пункт 7: rank-4+ ход — 6% (Irwin анализирует 4.5M нод — нужен реалистичный rank distribution)
+  if (chosenSource !== 'sf-override' && diff12 < 20 && !lowTime && !injectCooldown && !maiaAlreadyBad && Math.random() < 0.06) {
     const chPos = new Chess(fen)
     const topSet = new Set([sfBest.move, sfBest.m2, sfBest.m3].filter(Boolean))
     const quietAlt = chPos.moves({ verbose: true }).filter(m =>
@@ -953,15 +964,19 @@ async function getComboMove(fen, sfEngine, maiaEngine, suboptimal, lateGame, eff
   }
   // Инъекция в критические моменты: 7% даже когда выигрываем — Irwin ожидает это от человека
   const criticalInject = winning && !losing && !injectCooldown && !lowTime && Math.random() < 0.07
-  if (chosenSource !== 'sf-override' && !lowTime && !injectCooldown && !maiaAlreadyBad && (criticalInject || (!winning && inaccRate > 0 && Math.random() < inaccRate))) {
-    if (sfBest.m3 && (sfBest.score - sfBest.s3) < 500 && Math.random() < 0.25) {
+  // Пункт 5: opportunity — когда долго выигрываем, Kaladin ожидает что человек иногда упускает победу
+  const missConversion = winningStreakMoves >= 5 && sfBest.score > 400 && !injectCooldown && !lowTime && Math.random() < 0.08
+  if (chosenSource !== 'sf-override' && !lowTime && !injectCooldown && !maiaAlreadyBad && (criticalInject || missConversion || (!winning && inaccRate > 0 && Math.random() < inaccRate))) {
+    const m3cap = missConversion ? 700 : 500
+    const m2cap = missConversion ? 450 : 300
+    if (sfBest.m3 && (sfBest.score - sfBest.s3) < m3cap && Math.random() < 0.25) {
       const m3Loss = -seeMove(fen, sfBest.m3.slice(0, 2), sfBest.m3.slice(2, 4))
-      if (m3Loss < 450) {
+      if (m3Loss < 500) {
         liveLastInjectAt = liveMoveAccuracies.length
         return { uciMove: sfBest.m3, source: 'sf-mistake', estMvAccuracy: movAccuracy(sfBest.score, sfBest.s3) }
       }
     }
-    if (sfBest.m2 && (sfBest.score - sfBest.s2) < 300) {
+    if (sfBest.m2 && (sfBest.score - sfBest.s2) < m2cap) {
       const m2Loss = -seeMove(fen, sfBest.m2.slice(0, 2), sfBest.m2.slice(2, 4))
       if (m2Loss < 450) {
         liveLastInjectAt = liveMoveAccuracies.length
@@ -995,9 +1010,16 @@ async function runSession(engine, maiaEngine, isLichess, siteUrl, boardSel, read
       const myColor = fl ? 'b' : 'w'
       errorStreakLeft = 0
       await detectGameType(page)
-      liveMoveAccuracies = []; liveAdjust = 1.0; liveLastInjectAt = -99
-      gameAccuracyTarget = 68 + Math.floor(Math.random() * 17)  // 68–84%
-      gameBlunderLeft = Math.random() < 0.30 ? 1 : 0
+      liveMoveAccuracies = []; liveAdjust = 1.0; liveLastInjectAt = -99; winningStreakMoves = 0
+      // Пункт 2: 15% партий — «плохой день» (55–67%): у реального игрока бывают провальные сессии
+      if (Math.random() < 0.15) {
+        gameAccuracyTarget = 55 + Math.floor(Math.random() * 13)   // 55–67%
+        gameBlunderLeft = Math.random() < 0.55 ? 2 : 1             // больше промахов
+        console.log(`[bad game] цель точности: ${gameAccuracyTarget}% — сессия усталости/формы`)
+      } else {
+        gameAccuracyTarget = 68 + Math.floor(Math.random() * 17)   // 68–84%
+        gameBlunderLeft = Math.random() < 0.30 ? 1 : 0
+      }
       const inaccLabel = INACCURACY_OVERRIDE !== null
         ? `i=${getInaccPct()}% (ручной)`
         : `i=${getInaccPct()}% (авто)`
@@ -1006,6 +1028,14 @@ async function runSession(engine, maiaEngine, isLichess, siteUrl, boardSel, read
         : `Depth:${DEPTH} Skill:${SKILL}${AUTO_DEPTH ? ' [авто]' : ''} | ${inaccLabel}`
       console.log(`Играю за: ${myColor === 'w' ? '♔ Белых' : '♚ Чёрных'} | ${modeInfo}`)
       console.log(`[!] Держи Chrome в фокусе — lila-ws фиксирует blur events (переключение окон)`)
+      // Пункт 4: турнир — Irwin автоматически анализирует топ-5 участников
+      const isTournament = await page.evaluate(() =>
+        !!(document.querySelector('.game__tournament, .game__tournament-clock, [class*="tournament"]'))
+      ).catch(() => false)
+      if (isTournament) {
+        console.log(`[!!] ТУРНИР ОБНАРУЖЕН — Irwin автоматически анализирует топ-5 участников!`)
+        console.log(`[!!] Рекомендуется играть только обычные партии, не турниры.`)
+      }
 
       let lastFen = ''
       let fastStreakLeft = 0
