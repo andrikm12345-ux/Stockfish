@@ -723,7 +723,7 @@ async function openBrowser(siteUrl) {
   if (!chromeExe) throw new Error('Google Chrome не найден — установи Chrome.')
 
   // Пункт 3: отдельный профиль на каждый аккаунт — lila autoAltPrintReport ловит общий fingerprint
-  const profileName = process.env.PROFILE || 'default'
+  const profileName = process.argv[2] || process.env.PROFILE || 'default'
   const debugProfile = path.join(__dirname, `chrome-profile-${profileName}`)
   console.log('Запускаю отдельное окно Chrome для бота...')
   spawn(chromeExe, [
