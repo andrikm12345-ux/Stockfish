@@ -725,7 +725,15 @@ async function openBrowser(siteUrl) {
   // Пункт 3: отдельный профиль на каждый аккаунт — lila autoAltPrintReport ловит общий fingerprint
   const profileName = process.argv[2] || process.env.PROFILE || 'default'
   const debugProfile = path.join(__dirname, `chrome-profile-${profileName}`)
-  console.log('Запускаю отдельное окно Chrome для бота...')
+
+  // Закрываем все Chrome чтобы освободить порт 9222 — иначе новый инстанс не сможет его занять
+  if (process.platform === 'win32') {
+    console.log('Закрываю все окна Chrome (нужен чистый старт для порта 9222)...')
+    try { require('child_process').execSync('taskkill /f /im chrome.exe', { stdio: 'ignore' }) } catch {}
+    await new Promise(r => setTimeout(r, 2000))
+  }
+
+  console.log(`Запускаю Chrome [профиль: ${profileName}]...`)
   spawn(chromeExe, [
     '--remote-debugging-port=9222',
     `--user-data-dir=${debugProfile}`,
@@ -736,7 +744,7 @@ async function openBrowser(siteUrl) {
   console.log('Жду запуска Chrome...')
   const http = require('http')
   let portUp = false
-  for (let i = 0; i < 20; i++) {
+  for (let i = 0; i < 30; i++) {
     await new Promise(r => setTimeout(r, 1000))
     portUp = await new Promise(r => {
       const req = http.get('http://127.0.0.1:9222/json/version', res => r(res.statusCode === 200))
@@ -745,7 +753,7 @@ async function openBrowser(siteUrl) {
     })
     if (portUp) break
   }
-  if (!portUp) throw new Error('Chrome не открыл порт 9222 — закрой все окна Chrome и попробуй снова.')
+  if (!portUp) throw new Error('Chrome не открыл порт 9222 — попробуй перезапустить бота.')
 
   console.log('\n══════════════════════════════════════════════════════════')
   console.log(' Если ты УЖЕ вошёл в Lichess — просто нажми ENTER.')
